@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: account-service
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
