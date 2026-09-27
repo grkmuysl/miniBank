@@ -1,4 +1,4 @@
-package com.gorkemuysal.miniBank;
+package com.gorkemuysal.minibank;
 
 import org.springframework.boot.SpringApplication;
 
