@@ -1,6 +1,10 @@
 package com.gorkemuysal.minibank.account;
 
 import com.gorkemuysal.minibank.common.BaseEntity;
+import com.gorkemuysal.minibank.exception.AccountNotActiveException;
+import com.gorkemuysal.minibank.exception.CurrencyMismatchException;
+import com.gorkemuysal.minibank.exception.InsufficientBalanceException;
+import com.gorkemuysal.minibank.exception.InvalidAmountException;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -44,5 +48,48 @@ public class Account extends BaseEntity {
 
     public static Account open(String accountNumber, String ownerName, Currency currency) {
         return new Account(accountNumber, ownerName, currency);
+    }
+
+    public void deposit(BigDecimal amount, Currency currency){
+        ensureValidAmount(amount);
+        ensureActive();
+        ensureSameCurrency(currency);
+        this.balance = this.balance.add(amount);
+    }
+
+    public void withdraw(BigDecimal amount , Currency currency){
+        ensureValidAmount(amount);
+        ensureActive();
+        ensureSameCurrency(currency);
+        ensureSufficientBalance(amount);
+        this.balance = this.balance.subtract(amount);
+    }
+
+    private void ensureActive(){
+        if(status != AccountStatus.ACTIVE){
+            throw new AccountNotActiveException("Account is not active.");
+        }
+    }
+
+    private void ensureSameCurrency(Currency currency) {
+        if (currency != this.currency) {
+            throw new CurrencyMismatchException(
+                    "Currency mismatch: account is " + this.currency + ", request is " + currency);
+        }
+    }
+
+    private void ensureSufficientBalance(BigDecimal amount) {
+        if (balance.compareTo(amount) < 0) {
+            throw new InsufficientBalanceException("Insufficient balance.");
+        }
+    }
+
+    private void ensureValidAmount(BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) {
+            throw new InvalidAmountException("Amount must be greater than zero.");
+        }
+        if (amount.stripTrailingZeros().scale() > 2) {
+            throw new InvalidAmountException("Amount cannot have more than 2 decimal places.");
+        }
     }
 }
