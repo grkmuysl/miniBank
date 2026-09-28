@@ -1,24 +1,16 @@
 package com.gorkemuysal.minibank.exception;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import java.time.Instant;
-import java.util.Map;
+
+import java.util.List;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ErrorResponse(
-        Instant timestamp,
         int status,
         String error,
+        String code,
         String message,
-        String path,
-        Map<String, String> fieldErrors
+        List<FieldViolation> fieldErrors
 ) {
-    public static ErrorResponse of(int status, String error, String message, String path) {
-        return new ErrorResponse(Instant.now(), status, error, message, path, null);
-    }
-
-    public static ErrorResponse of(int status, String error, String message, String path,
-                                   Map<String, String> fieldErrors) {
-        return new ErrorResponse(Instant.now(), status, error, message, path, fieldErrors);
-    }
+    public record FieldViolation(String field, String message) {}
 }
