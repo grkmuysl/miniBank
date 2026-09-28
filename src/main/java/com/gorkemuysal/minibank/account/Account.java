@@ -46,10 +46,12 @@ public class Account extends BaseEntity {
         this.status = AccountStatus.ACTIVE;
     }
 
+    // Handle open new account
     public static Account open(String accountNumber, String ownerName, Currency currency) {
         return new Account(accountNumber, ownerName, currency);
     }
 
+    // handle deposit specific amount and currency
     public void deposit(BigDecimal amount, Currency currency){
         ensureValidAmount(amount);
         ensureActive();
@@ -57,6 +59,7 @@ public class Account extends BaseEntity {
         this.balance = this.balance.add(amount);
     }
 
+    // handle withdraw operations with specific amount and currency
     public void withdraw(BigDecimal amount , Currency currency){
         ensureValidAmount(amount);
         ensureActive();
@@ -65,12 +68,22 @@ public class Account extends BaseEntity {
         this.balance = this.balance.subtract(amount);
     }
 
+    /**
+     * checks if account is active or not.
+     *
+     * @throws AccountNotActiveException if account is not active
+     * */
     private void ensureActive(){
         if(status != AccountStatus.ACTIVE){
             throw new AccountNotActiveException("Account is not active.");
         }
     }
 
+    /**
+     * checks currency match.
+     *
+     * @throws CurrencyMismatchException if there is a mismatch
+     * */
     private void ensureSameCurrency(Currency currency) {
         if (currency != this.currency) {
             throw new CurrencyMismatchException(
@@ -78,12 +91,22 @@ public class Account extends BaseEntity {
         }
     }
 
+    /**
+     * Checks balance is sufficeint or not.
+     *
+     * @throws InsufficientBalanceException if balance is insufficient
+     * */
     private void ensureSufficientBalance(BigDecimal amount) {
         if (balance.compareTo(amount) < 0) {
             throw new InsufficientBalanceException("Insufficient balance.");
         }
     }
 
+    /**
+     * Checks is valid amount.
+     *
+     * @throws InvalidAmountException if amount is not valid
+     * */
     private void ensureValidAmount(BigDecimal amount) {
         if (amount == null || amount.signum() <= 0) {
             throw new InvalidAmountException("Amount must be greater than zero.");
