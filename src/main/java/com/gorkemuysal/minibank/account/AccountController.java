@@ -47,4 +47,16 @@ public class AccountController {
                                                     @Valid @RequestBody MoneyRequest request) {
         return ResponseEntity.ok(accountService.withdraw(id, request));
     }
+
+    @PostMapping("/{id}/freeze")
+    @PreAuthorize("hasRole('OPERATOR')")
+    public ResponseEntity<AccountResponse> freeze(@PathVariable Long id) {
+        return ResponseEntity.ok(accountService.freeze(id));
+    }
+
+    @PostMapping("/{id}/activate")
+    @PreAuthorize("hasRole('OPERATOR')")
+    public ResponseEntity<AccountResponse> activate(@PathVariable Long id) {
+        return ResponseEntity.ok(accountService.active(id));
+    }
 }

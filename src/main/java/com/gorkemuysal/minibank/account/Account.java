@@ -68,6 +68,18 @@ public class Account extends BaseEntity {
         this.balance = this.balance.subtract(amount);
     }
 
+    // handle convert status of account from active to frozen.
+    public void freeze(){
+        ensureActive();
+        this.status = AccountStatus.FROZEN;
+    }
+
+    // handle convert status of account from froze to active.
+    public void active(){
+        ensureFrozen();
+        this.status = AccountStatus.ACTIVE;
+    }
+
     /**
      * checks if account is active or not.
      *
@@ -78,6 +90,18 @@ public class Account extends BaseEntity {
             throw new AccountNotActiveException("Account is not active.");
         }
     }
+
+    /**
+     * checks if account is frozen or not.
+     *
+     * @throws AccountNotActiveException if account is not active
+     * */
+    private void ensureFrozen(){
+        if(status != AccountStatus.FROZEN){
+            throw new AccountNotActiveException("Account is not frozen.");
+        }
+    }
+
 
     /**
      * checks currency match.

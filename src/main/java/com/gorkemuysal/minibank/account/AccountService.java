@@ -69,6 +69,20 @@ public class AccountService {
         return AccountResponse.from(accountRepository.saveAndFlush(account));
     }
 
+    @Transactional
+    public AccountResponse freeze(Long id) {
+        Account account = findOrThrow(id);
+        account.freeze();
+        return AccountResponse.from(accountRepository.saveAndFlush(account));
+    }
+
+    @Transactional
+    public AccountResponse active(Long id) {
+        Account account = findOrThrow(id);
+        account.active();
+        return AccountResponse.from(accountRepository.saveAndFlush(account));
+    }
+
     private Account findOrThrow(Long id) {
         return accountRepository.findById(id)
                 .orElseThrow(() -> new AccountNotFoundException(id));
