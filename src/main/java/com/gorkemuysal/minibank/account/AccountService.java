@@ -26,17 +26,12 @@ public class AccountService {
      * @return AccountResponse object
      * */
     @Transactional
-    public AccountResponse createAccount(CreateAccountRequest request){
+    public AccountResponse createAccount(CreateAccountRequest request, String ownerId, String ownerName) {
 
-        // Generate account number with ibanGenerator
         String accountNumber = ibanGenerator.generate();
+        Account account = Account.open(accountNumber, ownerId, ownerName, request.currency());
+        return AccountResponse.from(accountRepository.save(account));
 
-        // create account
-        Account account = Account.open(accountNumber, request.ownerName() , request.currency());
-
-        Account saved = accountRepository.save(account);
-
-        return AccountResponse.from(saved);
     }
 
     /**

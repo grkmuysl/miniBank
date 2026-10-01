@@ -8,6 +8,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
@@ -25,8 +27,13 @@ public class AccountController {
 
     @PostMapping
     @PreAuthorize("hasRole('CUSTOMER')")
-    public ResponseEntity<AccountResponse> create(@Valid @RequestBody CreateAccountRequest request){
-        AccountResponse response = accountService.createAccount(request);
+    public ResponseEntity<AccountResponse> create(@Valid @RequestBody CreateAccountRequest request,
+                                                  @AuthenticationPrincipal Jwt jwt) {
+        String name = jwt.getClaimAsString("name");
+        if (name == null || name.isBlank()) {
+            name = jwt.getClaimAsString("preferred_username");
+        }
+        AccountResponse response = accountService.createAccount(request, jwt.getSubject(), name);
         URI location = URI.create("/api/v1/accounts/" + response.id());
         return ResponseEntity.created(location).body(response);
     }

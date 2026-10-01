@@ -24,6 +24,9 @@ public class Account extends BaseEntity {
     @Column(nullable = false, length = 100)
     private String ownerName;
 
+    @Column(name = "owner_id", nullable = false, updatable = false)
+    private String ownerId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, length = 3)
     private Currency currency;
@@ -38,8 +41,9 @@ public class Account extends BaseEntity {
     @Version
     private Long version;
 
-    private Account(String accountNumber, String ownerName, Currency currency) {
+    private Account(String accountNumber, String ownerId, String ownerName, Currency currency) {
         this.accountNumber = accountNumber;
+        this.ownerId = ownerId;
         this.ownerName = ownerName;
         this.currency = currency;
         this.balance = BigDecimal.ZERO.setScale(2);
@@ -47,8 +51,8 @@ public class Account extends BaseEntity {
     }
 
     // Handle open new account
-    public static Account open(String accountNumber, String ownerName, Currency currency) {
-        return new Account(accountNumber, ownerName, currency);
+    public static Account open(String accountNumber,String ownerId ,String ownerName, Currency currency) {
+        return new Account(accountNumber, ownerId, ownerName, currency);
     }
 
     // handle deposit specific amount and currency
