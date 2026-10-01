@@ -13,6 +13,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -39,9 +40,9 @@ public class AccountController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('OPERATOR')")
-    public ResponseEntity<AccountResponse> getById(@PathVariable Long id) {
-        return ResponseEntity.ok(accountService.getById(id));
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'OPERATOR')")
+    public ResponseEntity<AccountResponse> getById(@PathVariable Long id, Authentication auth) {
+        return ResponseEntity.ok(accountService.getById(id, CurrentUser.from(auth)));
     }
 
     @PostMapping("/{id}/deposit")
@@ -52,10 +53,11 @@ public class AccountController {
     }
 
     @PostMapping("/{id}/withdraw")
-    @PreAuthorize("hasAnyRole('CUSTOMER', 'OPERATOR')")
+    @PreAuthorize("hasRole('CUSTOMER')")
     public ResponseEntity<AccountResponse> withdraw(@PathVariable Long id,
-                                                    @Valid @RequestBody MoneyRequest request) {
-        return ResponseEntity.ok(accountService.withdraw(id, request));
+                                                    @Valid @RequestBody MoneyRequest request,
+                                                    Authentication auth) {
+        return ResponseEntity.ok(accountService.withdraw(id, request, CurrentUser.from(auth)));
     }
 
     @PostMapping("/{id}/freeze")
@@ -68,5 +70,11 @@ public class AccountController {
     @PreAuthorize("hasRole('OPERATOR')")
     public ResponseEntity<AccountResponse> activate(@PathVariable Long id) {
         return ResponseEntity.ok(accountService.active(id));
+    }
+
+    @GetMapping
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<List<AccountResponse>> listMine(Authentication auth) {
+        return ResponseEntity.ok(accountService.listMine(CurrentUser.from(auth)));
     }
 }
