@@ -24,6 +24,9 @@ public class Account extends BaseEntity {
     @Column(nullable = false, length = 100)
     private String ownerName;
 
+    @Column(name = "owner_id", nullable = false, updatable = false)
+    private String ownerId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, length = 3)
     private Currency currency;
@@ -38,8 +41,9 @@ public class Account extends BaseEntity {
     @Version
     private Long version;
 
-    private Account(String accountNumber, String ownerName, Currency currency) {
+    private Account(String accountNumber, String ownerId, String ownerName, Currency currency) {
         this.accountNumber = accountNumber;
+        this.ownerId = ownerId;
         this.ownerName = ownerName;
         this.currency = currency;
         this.balance = BigDecimal.ZERO.setScale(2);
@@ -47,8 +51,8 @@ public class Account extends BaseEntity {
     }
 
     // Handle open new account
-    public static Account open(String accountNumber, String ownerName, Currency currency) {
-        return new Account(accountNumber, ownerName, currency);
+    public static Account open(String accountNumber,String ownerId ,String ownerName, Currency currency) {
+        return new Account(accountNumber, ownerId, ownerName, currency);
     }
 
     // handle deposit specific amount and currency
@@ -68,6 +72,18 @@ public class Account extends BaseEntity {
         this.balance = this.balance.subtract(amount);
     }
 
+    // handle convert status of account from active to frozen.
+    public void freeze(){
+        ensureActive();
+        this.status = AccountStatus.FROZEN;
+    }
+
+    // handle convert status of account from froze to active.
+    public void active(){
+        ensureFrozen();
+        this.status = AccountStatus.ACTIVE;
+    }
+
     /**
      * checks if account is active or not.
      *
@@ -78,6 +94,18 @@ public class Account extends BaseEntity {
             throw new AccountNotActiveException("Account is not active.");
         }
     }
+
+    /**
+     * checks if account is frozen or not.
+     *
+     * @throws AccountNotActiveException if account is not active
+     * */
+    private void ensureFrozen(){
+        if(status != AccountStatus.FROZEN){
+            throw new AccountNotActiveException("Account is not frozen.");
+        }
+    }
+
 
     /**
      * checks currency match.

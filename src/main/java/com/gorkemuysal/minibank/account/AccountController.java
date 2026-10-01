@@ -5,9 +5,16 @@ import com.gorkemuysal.minibank.account.dto.CreateAccountRequest;
 import com.gorkemuysal.minibank.account.dto.MoneyRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/accounts")
@@ -20,26 +27,54 @@ public class AccountController {
     }
 
     @PostMapping
-    public ResponseEntity<AccountResponse> create(@Valid @RequestBody CreateAccountRequest request){
-        AccountResponse response = accountService.createAccount(request);
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<AccountResponse> create(@Valid @RequestBody CreateAccountRequest request,
+                                                  @AuthenticationPrincipal Jwt jwt) {
+        String name = jwt.getClaimAsString("name");
+        if (name == null || name.isBlank()) {
+            name = jwt.getClaimAsString("preferred_username");
+        }
+        AccountResponse response = accountService.createAccount(request, jwt.getSubject(), name);
         URI location = URI.create("/api/v1/accounts/" + response.id());
         return ResponseEntity.created(location).body(response);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<AccountResponse> getById(@PathVariable Long id) {
-        return ResponseEntity.ok(accountService.getById(id));
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'OPERATOR')")
+    public ResponseEntity<AccountResponse> getById(@PathVariable Long id, Authentication auth) {
+        return ResponseEntity.ok(accountService.getById(id, CurrentUser.from(auth)));
     }
 
     @PostMapping("/{id}/deposit")
+    @PreAuthorize("hasRole('OPERATOR')")
     public ResponseEntity<AccountResponse> deposit(@PathVariable Long id,
                                                    @Valid @RequestBody MoneyRequest request) {
         return ResponseEntity.ok(accountService.deposit(id, request));
     }
 
     @PostMapping("/{id}/withdraw")
+    @PreAuthorize("hasRole('CUSTOMER')")
     public ResponseEntity<AccountResponse> withdraw(@PathVariable Long id,
-                                                    @Valid @RequestBody MoneyRequest request) {
-        return ResponseEntity.ok(accountService.withdraw(id, request));
+                                                    @Valid @RequestBody MoneyRequest request,
+                                                    Authentication auth) {
+        return ResponseEntity.ok(accountService.withdraw(id, request, CurrentUser.from(auth)));
+    }
+
+    @PostMapping("/{id}/freeze")
+    @PreAuthorize("hasRole('OPERATOR')")
+    public ResponseEntity<AccountResponse> freeze(@PathVariable Long id) {
+        return ResponseEntity.ok(accountService.freeze(id));
+    }
+
+    @PostMapping("/{id}/activate")
+    @PreAuthorize("hasRole('OPERATOR')")
+    public ResponseEntity<AccountResponse> activate(@PathVariable Long id) {
+        return ResponseEntity.ok(accountService.active(id));
+    }
+
+    @GetMapping
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<List<AccountResponse>> listMine(Authentication auth) {
+        return ResponseEntity.ok(accountService.listMine(CurrentUser.from(auth)));
     }
 }
