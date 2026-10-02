@@ -1,3 +1,27 @@
+server:
+  port: 8081
+
 spring:
   application:
     name: transfer-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/transferdb}
+    username: ${DB_USERNAME:transfer_app}
+    password: ${DB_PASSWORD:local_dev_only}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8180/realms/minibank
+          jwk-set-uri: http://localhost:8180/realms/minibank/protocol/openid-connect/certs
+          audiences: transfer-service
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
