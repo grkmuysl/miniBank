@@ -1,4 +1,4 @@
-CREATE TABLE transfer(
+CREATE TABLE transfers(
     id BIGSERIAL PRIMARY KEY,
     initiator_id VARCHAR(255) NOT NULL,
     source_iban VARCHAR(26) NOT NULL,
