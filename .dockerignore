@@ -1,5 +1,5 @@
-target
-.git
-.idea
-*.iml
-.vscode
+**/target/
+.git/
+.idea/
+**/*.iml
+.env

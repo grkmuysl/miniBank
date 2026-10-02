@@ -26,9 +26,11 @@ services:
     volumes:
       - keycloak-data:/opt/keycloak/data
 
-  app:
-    build: .
-    profiles: ["app"]
+  account-service:
+    build:
+      context: .
+      dockerfile: account-service/Dockerfile
+    profiles: [ "app" ]
     ports:
       - "8080:8080"
     environment:

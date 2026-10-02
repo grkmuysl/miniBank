@@ -1,6 +1,10 @@
 spring:
   application:
     name: account-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/accountdb}
+    username: ${DB_USERNAME:account_app}
+    password: ${DB_PASSWORD:local_dev_only}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -18,4 +22,3 @@ management:
     web:
       exposure:
         include: health
-
