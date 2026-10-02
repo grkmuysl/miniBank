@@ -44,6 +44,24 @@ services:
       keycloak:
         condition: service_started
 
+  transfer-service:
+    build:
+      context: .
+      dockerfile: transfer-service/Dockerfile
+    profiles: [ "app" ]
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/transferdb
+      SPRING_DATASOURCE_USERNAME: transfer_app
+      SPRING_DATASOURCE_PASSWORD: local_dev_only
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/minibank/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
 volumes:
   pgdata:
   keycloak-data:
