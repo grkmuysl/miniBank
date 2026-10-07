@@ -4,6 +4,7 @@ import com.gorkemuysal.minibank.ledger.dto.CreatePostingRequest;
 import com.gorkemuysal.minibank.ledger.dto.PostingResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -22,6 +23,13 @@ public class InternalPostingController {
 
     @PostMapping
     public PostingResponse post(@Valid @RequestBody CreatePostingRequest request) {
-        return postingService.post(request);
+        try {
+            return postingService.post(request);
+        } catch (DataIntegrityViolationException e) {
+            // Last line of defense: a concurrent call with the same transferId won the race
+            // (only possible if it used different IBANs and therefore different locks).
+            // post()'s transaction is already rolled back here, so this read runs cleanly.
+            return postingService.findPosted(request.transferId()).orElseThrow(() -> e);
+        }
     }
 }

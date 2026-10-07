@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -53,9 +54,11 @@ public class PostingService {
         accounts.target().deposit(request.amount(), request.currency());
 
         // 6) Double-entry: one DEBIT and one CREDIT with equal amounts.
-        //    UNIQUE (transfer_id, direction) is the final guarantee against double posting.
-        Posting debit = postingRepository.save(Posting.debit(request.transferId(), accounts.source(), request.amount()));
-        Posting credit = postingRepository.save(Posting.credit(request.transferId(), accounts.target(), request.amount()));
+        // saveAndFlush: run the INSERT here, so a UNIQUE violation surfaces as
+        // DataIntegrityViolationException from this call (not later at commit time,
+        // where it would be wrapped in a different exception type).
+        Posting debit = postingRepository.saveAndFlush(Posting.debit(request.transferId(), accounts.source(), request.amount()));
+        Posting credit = postingRepository.saveAndFlush(Posting.credit(request.transferId(), accounts.target(), request.amount()));
 
         return PostingResponse.from(request.transferId(), List.of(debit, credit));
     }
@@ -76,6 +79,15 @@ public class PostingService {
                 .orElseThrow(() -> new AccountNotFoundException(secondIban));
 
         return sourceFirst ? new LockedPair(first, second) : new LockedPair(second, first);
+    }
+
+    /** Returns the result of an already posted transfer, if any. Runs in its own read-only transaction. */
+    @Transactional(readOnly = true)
+    public Optional<PostingResponse> findPosted(Long transferId) {
+        List<Posting> postings = postingRepository.findAllByTransferId(transferId);
+        return postings.isEmpty()
+                ? Optional.empty()
+                : Optional.of(PostingResponse.from(transferId, postings));
     }
 
     private record LockedPair(Account source, Account target) {
