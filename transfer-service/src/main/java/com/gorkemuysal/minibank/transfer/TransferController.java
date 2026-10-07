@@ -34,8 +34,7 @@ public class TransferController {
         }
 
         CreateTransferResult result = transferService.create(jwt.getSubject(), idempotencyKey, request);
-        HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
-        return ResponseEntity.status(status).body(TransferResponse.from(result.transfer()));
+        return ResponseEntity.status(responseStatus(result)).body(TransferResponse.from(result.transfer()));
     }
 
     @GetMapping("/{id}")
@@ -48,5 +47,17 @@ public class TransferController {
         return transferService.listForInitiator(jwt.getSubject()).stream()
                 .map(TransferResponse::from)
                 .toList();
+    }
+
+    /**
+     * 200: idempotent replay of an existing transfer (whatever its current state).
+     * 201: new transfer with a final result (COMPLETED or FAILED).
+     * 202: new transfer accepted, outcome not known yet; poll GET /transfers/{id}.
+     */
+    private static HttpStatus responseStatus(CreateTransferResult result) {
+        if (!result.created()) {
+            return HttpStatus.OK;
+        }
+        return result.transfer().isPending() ? HttpStatus.ACCEPTED : HttpStatus.CREATED;
     }
 }
