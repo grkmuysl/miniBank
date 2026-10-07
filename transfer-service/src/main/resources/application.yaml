@@ -1,0 +1,42 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: transfer-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/transferdb}
+    username: ${DB_USERNAME:transfer_app}
+    password: ${DB_PASSWORD:local_dev_only}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  security:
+    oauth2:
+      # Incoming requests: validate the customer's token
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8180/realms/minibank
+          jwk-set-uri: http://localhost:8180/realms/minibank/protocol/openid-connect/certs
+          audiences: transfer-service
+      # Outgoing requests: obtain our own token for account-service
+      client:
+        registration:
+          account-service:
+            provider: keycloak
+            client-id: transfer-service-client
+            client-secret: ${ACCOUNT_CLIENT_SECRET}
+            authorization-grant-type: client_credentials
+        provider:
+          keycloak:
+            token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:8180/realms/minibank/protocol/openid-connect/token}
+
+account-service:
+  base-url: ${ACCOUNT_SERVICE_URL:http://localhost:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

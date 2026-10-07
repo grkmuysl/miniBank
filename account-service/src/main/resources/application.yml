@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: account-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/accountdb}
+    username: ${DB_USERNAME:account_app}
+    password: ${DB_PASSWORD:local_dev_only}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8180/realms/minibank
+          jwk-set-uri: http://localhost:8180/realms/minibank/protocol/openid-connect/certs
+          audiences: account-service
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
