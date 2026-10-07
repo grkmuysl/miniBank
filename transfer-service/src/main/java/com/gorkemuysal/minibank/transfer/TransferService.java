@@ -16,6 +16,7 @@ import java.util.Optional;
 public class TransferService {
 
     private final TransferRepository transferRepository;
+    private final TransferProcessor transferProcessor;
 
     /**
      * Creates a PENDING transfer in an idempotent way.
@@ -54,7 +55,8 @@ public class TransferService {
         try {
             Transfer saved = transferRepository.saveAndFlush(
                     Transfer.createPending(initiatorId, idempotencyKey, request));
-            return new CreateTransferResult(saved, true);
+            Transfer processed = transferProcessor.process(saved.getId());
+            return new CreateTransferResult(processed, true);
         } catch (DataIntegrityViolationException e) {
             // 3) We lost the race: a concurrent request with the same key inserted first.
             //    PostgreSQL blocks our INSERT until the other transaction commits, so by the time

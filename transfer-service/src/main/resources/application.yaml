@@ -40,3 +40,10 @@ management:
     web:
       exposure:
         include: health
+
+
+transfer:
+  retry:
+    max-attempts: ${TRANSFER_RETRY_MAX_ATTEMPTS:8}
+    base-delay: ${TRANSFER_RETRY_BASE_DELAY:5s}
+    max-delay: ${TRANSFER_RETRY_MAX_DELAY:10m}
