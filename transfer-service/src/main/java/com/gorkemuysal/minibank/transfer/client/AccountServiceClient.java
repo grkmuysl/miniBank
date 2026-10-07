@@ -21,10 +21,15 @@ public class AccountServiceClient {
      * Everything else is treated as Unknown, because we cannot be sure the money didn't move,
      * or because the problem is on our side (e.g. 401/403 = misconfiguration) and a retry may succeed.
      */
+    /** Only these mean "rejected for a business reason, the money definitely did not move". */
     private static final Set<HttpStatus> BUSINESS_REJECTIONS = Set.of(
-            HttpStatus.BAD_REQUEST,
             HttpStatus.NOT_FOUND,
             HttpStatus.UNPROCESSABLE_CONTENT);
+
+    /** Our own misconfiguration (wrong secret, missing role). Needs immediate attention. */
+    private static final Set<HttpStatus> CONFIGURATION_ERRORS = Set.of(
+            HttpStatus.UNAUTHORIZED,
+            HttpStatus.FORBIDDEN);
 
     private final RestClient accountServiceRestClient;
 
@@ -38,11 +43,24 @@ public class AccountServiceClient {
             return new PostingOutcome.Posted();
 
         } catch (RestClientResponseException e) {
-            // account-service answered with a non-2xx status.
             HttpStatus status = HttpStatus.resolve(e.getStatusCode().value());
+
             if (status != null && BUSINESS_REJECTIONS.contains(status)) {
                 return new PostingOutcome.Rejected(readErrorCode(e));
             }
+            if (status != null && CONFIGURATION_ERRORS.contains(status)) {
+                log.error("account-service rejected our credentials ({}) for transfer {}. "
+                                + "Check ACCOUNT_CLIENT_SECRET and the TRANSFER_SERVICE role.",
+                        e.getStatusCode(), request.transferId());
+                return new PostingOutcome.Unknown("HTTP_" + e.getStatusCode().value());
+            }
+            if (status == HttpStatus.BAD_REQUEST) {
+                log.error("account-service rejected the request as invalid for transfer {}: {}. "
+                                + "The contract between the services may be broken.",
+                        request.transferId(), readErrorCode(e));
+                return new PostingOutcome.Unknown("HTTP_400");
+            }
+
             log.warn("account-service returned {} for transfer {}", e.getStatusCode(), request.transferId());
             return new PostingOutcome.Unknown("HTTP_" + e.getStatusCode().value());
 

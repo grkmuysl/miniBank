@@ -8,12 +8,16 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 
 @Entity
 @Table(name = "transfers")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Transfer extends BaseEntity {
+
+    private static final Duration INITIAL_RETRY_DELAY = Duration.ofSeconds(30);
 
     @Column(nullable = false, length = 64)
     private String idempotencyKey;
@@ -44,6 +48,17 @@ public class Transfer extends BaseEntity {
     @Column(length = 100)
     private String failureReason;
 
+    @Version
+    private Long version;
+
+    @Column(nullable = false)
+    private int attemptCount;
+
+    private Instant nextAttemptAt;
+
+    @Column(length = 255)
+    private String lastError;
+
     public static Transfer createPending(String initiatorId, String idempotencyKey, CreateTransferRequest request) {
         Transfer transfer = new Transfer();
         transfer.initiatorId = initiatorId;
@@ -54,6 +69,7 @@ public class Transfer extends BaseEntity {
         transfer.currency = request.currency();
         transfer.description = request.description();
         transfer.status = TransferStatus.PENDING;
+        transfer.nextAttemptAt = Instant.now().plus(INITIAL_RETRY_DELAY);
         return transfer;
     }
 
@@ -62,5 +78,51 @@ public class Transfer extends BaseEntity {
                 && targetIban.equals(request.targetIban())
                 && amount.compareTo(request.amount()) == 0
                 && currency == request.currency();
+    }
+
+    public boolean isPending() {
+        return status == TransferStatus.PENDING;
+    }
+
+    public void markCompleted() {
+        requirePending();
+        this.status = TransferStatus.COMPLETED;
+        this.nextAttemptAt = null;
+        this.lastError = null;
+    }
+
+    public void markFailed(String reason) {
+        requirePending();
+        this.status = TransferStatus.FAILED;
+        this.failureReason = truncate(reason, 100);
+        this.nextAttemptAt = null;
+    }
+
+    /** Outcome unknown; try again at the given time. */
+    public void scheduleRetry(String error, Instant nextAttemptAt) {
+        requirePending();
+        this.attemptCount++;
+        this.lastError = truncate(error, 255);
+        this.nextAttemptAt = nextAttemptAt;
+    }
+
+    /** Outcome still unknown after the last allowed attempt; hand over to a human. */
+    public void markManualReview(String error) {
+        requirePending();
+        this.attemptCount++;
+        this.status = TransferStatus.MANUAL_REVIEW;
+        this.lastError = truncate(error, 255);
+        this.nextAttemptAt = null;
+    }
+
+    /** Final states never change: a COMPLETED transfer must not silently become FAILED. */
+    private void requirePending() {
+        if (status != TransferStatus.PENDING) {
+            throw new IllegalStateException("Transfer " + getId() + " is not PENDING but " + status);
+        }
+    }
+
+    private static String truncate(String value, int maxLength) {
+        return value == null || value.length() <= maxLength ? value : value.substring(0, maxLength);
     }
 }
