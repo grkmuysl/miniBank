@@ -1,0 +1,33 @@
+server:
+  port: 8000
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      server:
+        webmvc:
+          routes:
+            - id: account-service
+              uri: ${ACCOUNT_SERVICE_URL:http://localhost:8080}
+              predicates:
+                - Path=/api/v1/accounts/**
+            - id: transfer-service
+              uri: ${TRANSFER_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/transfers/**
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8180/realms/minibank
+          jwk-set-uri: http://localhost:8180/realms/minibank/protocol/openid-connect/certs
+          # No "audiences": the gateway only checks "is this a valid minibank token?".
+          # Each service still checks its own audience and roles.
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
