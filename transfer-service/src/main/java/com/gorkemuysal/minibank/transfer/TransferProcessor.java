@@ -3,9 +3,11 @@ package com.gorkemuysal.minibank.transfer;
 import com.gorkemuysal.minibank.transfer.client.AccountServiceClient;
 import com.gorkemuysal.minibank.transfer.client.PostingOutcome;
 import com.gorkemuysal.minibank.transfer.client.PostingRequest;
+import com.gorkemuysal.minibank.transfer.common.RequestIdFilter;
 import com.gorkemuysal.minibank.transfer.retry.RetryProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -35,22 +37,38 @@ public class TransferProcessor {
      * or pretend that a local rollback could undo what account-service already did.
      */
     public Transfer process(Long transferId) {
-        // 1) Short read. Final states are never touched again.
         Transfer transfer = transferRepository.findById(transferId)
                 .orElseThrow(() -> new IllegalArgumentException("Transfer not found: " + transferId));
+
+        // In the POST request the MDC already holds this ID. In the retry job it is empty,
+        // so we restore the ID of the request that created the transfer: all attempts of
+        // one transfer then log with the same ID, and it also travels to account-service.
+        boolean boundHere = false;
+        if (MDC.get(RequestIdFilter.MDC_KEY) == null && transfer.getRequestId() != null) {
+            MDC.put(RequestIdFilter.MDC_KEY, transfer.getRequestId());
+            boundHere = true;
+        }
+        try {
+            return doProcess(transfer);
+        } finally {
+            // Only clean up what we set; never remove the ID of an enclosing HTTP request.
+            if (boundHere) {
+                MDC.remove(RequestIdFilter.MDC_KEY);
+            }
+        }
+    }
+
+    private Transfer doProcess(Transfer transfer) {
+        Long transferId = transfer.getId();
         if (!transfer.isPending()) {
             return transfer;
         }
 
-        // 2) Remote call, outside any transaction.
         PostingOutcome outcome = accountServiceClient.post(toPostingRequest(transfer));
 
-        // 3) Record the outcome in a new, short transaction.
         try {
             return transactionTemplate.execute(status -> applyOutcome(transferId, outcome));
         } catch (ObjectOptimisticLockingFailureException e) {
-            // Someone else (the POST request or another job run) updated this transfer
-            // between our read and our write. Their result stands; ours is discarded.
             log.info("Transfer {} was updated concurrently; keeping the other update", transferId);
             return transferRepository.findById(transferId).orElseThrow();
         }

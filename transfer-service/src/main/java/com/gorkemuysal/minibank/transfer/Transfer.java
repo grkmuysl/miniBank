@@ -59,7 +59,12 @@ public class Transfer extends BaseEntity {
     @Column(length = 255)
     private String lastError;
 
-    public static Transfer createPending(String initiatorId, String idempotencyKey, CreateTransferRequest request) {
+    @Column(length = 64, updatable = false)
+    private String requestId;
+
+    public static Transfer createPending(String initiatorId,
+                                         String idempotencyKey,
+                                         CreateTransferRequest request, String requestId) {
         Transfer transfer = new Transfer();
         transfer.initiatorId = initiatorId;
         transfer.idempotencyKey = idempotencyKey;
@@ -69,6 +74,7 @@ public class Transfer extends BaseEntity {
         transfer.currency = request.currency();
         transfer.description = request.description();
         transfer.status = TransferStatus.PENDING;
+        transfer.requestId = requestId;
         transfer.nextAttemptAt = Instant.now().plus(INITIAL_RETRY_DELAY);
         return transfer;
     }

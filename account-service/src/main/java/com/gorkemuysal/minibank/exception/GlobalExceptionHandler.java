@@ -1,7 +1,9 @@
 package com.gorkemuysal.minibank.exception;
 
+import com.gorkemuysal.minibank.common.RequestIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -83,6 +85,7 @@ public class GlobalExceptionHandler {
     private ResponseEntity<ErrorResponse> build(HttpStatus status, String code, String message,
                                                 List<ErrorResponse.FieldViolation> fieldErrors) {
         return ResponseEntity.status(status).body(new ErrorResponse(
-                status.value(), status.getReasonPhrase(), code, message, fieldErrors));
+                status.value(), status.getReasonPhrase(), code, message, fieldErrors,
+                MDC.get(RequestIdFilter.MDC_KEY)));
     }
 }
