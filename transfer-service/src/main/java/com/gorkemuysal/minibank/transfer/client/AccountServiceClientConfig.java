@@ -1,5 +1,7 @@
 package com.gorkemuysal.minibank.transfer.client;
 
+import com.gorkemuysal.minibank.transfer.common.RequestIdFilter;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -55,6 +57,14 @@ public class AccountServiceClientConfig {
                 .baseUrl(baseUrl)
                 .requestFactory(requestFactory)
                 .requestInterceptor(oauth2)
+                // Propagate the current request ID so account-service logs with the same ID.
+                .requestInterceptor((request, body, execution) -> {
+                    String requestId = MDC.get(RequestIdFilter.MDC_KEY);
+                    if (requestId != null) {
+                        request.getHeaders().set(RequestIdFilter.HEADER, requestId);
+                    }
+                    return execution.execute(request, body);
+                })
                 .build();
     }
 }

@@ -6,6 +6,7 @@ COPY mvnw pom.xml ./
 COPY .mvn .mvn
 COPY account-service/pom.xml account-service/
 COPY transfer-service/pom.xml transfer-service/
+COPY api-gateway/pom.xml api-gateway/
 RUN chmod +x mvnw && ./mvnw -pl account-service -am dependency:go-offline -B
 
 COPY account-service/src account-service/src

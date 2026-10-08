@@ -1,9 +1,11 @@
 package com.gorkemuysal.minibank.transfer;
 
+import com.gorkemuysal.minibank.transfer.common.RequestIdFilter;
 import com.gorkemuysal.minibank.transfer.dto.CreateTransferRequest;
 import com.gorkemuysal.minibank.transfer.exception.BusinessException;
 import com.gorkemuysal.minibank.transfer.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,7 +56,8 @@ public class TransferService {
         //    right here, so a constraint violation is thrown inside this try block.
         try {
             Transfer saved = transferRepository.saveAndFlush(
-                    Transfer.createPending(initiatorId, idempotencyKey, request));
+                    Transfer.createPending(initiatorId, idempotencyKey, request,
+                            MDC.get(RequestIdFilter.MDC_KEY)));
             Transfer processed = transferProcessor.process(saved.getId());
             return new CreateTransferResult(processed, true);
         } catch (DataIntegrityViolationException e) {

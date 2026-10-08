@@ -5,12 +5,12 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: local_dev_admin
     ports:
-      - "5433:5432"
+      - "5433:5432"            # dev convenience only; closed in a real environment
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d transferdb" ]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d transferdb"]
       interval: 5s
       retries: 10
 
@@ -22,7 +22,7 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
     ports:
-      - "8180:8080"
+      - "8180:8080"            # clients must reach Keycloak to log in
     volumes:
       - keycloak-data:/opt/keycloak/data
 
@@ -30,9 +30,8 @@ services:
     build:
       context: .
       dockerfile: account-service/Dockerfile
-    profiles: [ "app" ]
-    ports:
-      - "8080:8080"
+    profiles: ["app"]
+    # no "ports": reachable only from inside the compose network
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/accountdb
       SPRING_DATASOURCE_USERNAME: account_app
@@ -48,19 +47,37 @@ services:
     build:
       context: .
       dockerfile: transfer-service/Dockerfile
-    profiles: [ "app" ]
-    ports:
-      - "8081:8081"
+    profiles: ["app"]
+    # no "ports"
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/transferdb
       SPRING_DATASOURCE_USERNAME: transfer_app
       SPRING_DATASOURCE_PASSWORD: local_dev_only
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/minibank/protocol/openid-connect/certs
+      # Outgoing calls (east-west): straight to account-service over the internal network
+      ACCOUNT_SERVICE_URL: http://account-service:8080
+      KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/minibank/protocol/openid-connect/token
+      ACCOUNT_CLIENT_SECRET: ${ACCOUNT_CLIENT_SECRET:?ACCOUNT_CLIENT_SECRET is not set; add it to .env}
     depends_on:
       postgres:
         condition: service_healthy
       keycloak:
         condition: service_started
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    profiles: ["app"]
+    ports:
+      - "8000:8000"            # the only entry point for API traffic
+    environment:
+      ACCOUNT_SERVICE_URL: http://account-service:8080
+      TRANSFER_SERVICE_URL: http://transfer-service:8081
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/minibank/protocol/openid-connect/certs
+    depends_on:
+      - account-service
+      - transfer-service
 
 volumes:
   pgdata:

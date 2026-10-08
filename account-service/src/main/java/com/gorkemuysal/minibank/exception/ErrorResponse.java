@@ -10,7 +10,8 @@ public record ErrorResponse(
         String error,
         String code,
         String message,
-        List<FieldViolation> fieldErrors
+        List<FieldViolation> fieldErrors,
+        String requestId
 ) {
     public record FieldViolation(String field, String message) {}
 }

@@ -16,12 +16,13 @@ public record TransferResponse(
         String description,
         TransferStatus status,
         String failureReason,
+        String requestId,     // reference number: ID of the request that created this transfer
         Instant createdAt
 ) {
     public static TransferResponse from(Transfer t) {
         return new TransferResponse(
                 t.getId(), t.getSourceIban(), t.getTargetIban(), t.getAmount(),
                 t.getCurrency(), t.getDescription(), t.getStatus(),
-                t.getFailureReason(), t.getCreatedAt());
+                t.getFailureReason(), t.getRequestId(), t.getCreatedAt());
     }
 }
