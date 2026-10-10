@@ -4,10 +4,7 @@ import com.gorkemuysal.minibank.account.Account;
 import com.gorkemuysal.minibank.account.AccountLocker;
 import com.gorkemuysal.minibank.account.AccountRepository;
 import com.gorkemuysal.minibank.account.AccountStatus;
-import com.gorkemuysal.minibank.exception.AccountNotActiveException;
-import com.gorkemuysal.minibank.exception.AccountNotFoundException;
-import com.gorkemuysal.minibank.exception.CurrencyMismatchException;
-import com.gorkemuysal.minibank.exception.HoldNotFoundException;
+import com.gorkemuysal.minibank.exception.*;
 import com.gorkemuysal.minibank.hold.dto.HoldResponse;
 import com.gorkemuysal.minibank.hold.dto.PlaceHoldRequest;
 import com.gorkemuysal.minibank.ledger.Posting;
@@ -34,12 +31,41 @@ public class HoldService {
     private final AccountLocker accountLocker;
     private final PostingRepository postingRepository;
 
+    /** REST path: business failures are thrown and mapped to HTTP errors by GlobalExceptionHandler. */
     @Transactional
     public HoldResponse placeHold(PlaceHoldRequest request) {
+        return HoldResponse.from(doPlaceHold(request));
+    }
+
+    /**
+     * Messaging path: business failures are returned as {@link HoldResult.Rejected}.
+     * <p>
+     * Why: the Kafka handler's transaction (inbox + this + outbox) must commit even when the hold
+     * is rejected, so that the HOLD_FAILED reply and the inbox record are saved. If a
+     * BusinessException crossed this method's transactional proxy, Spring would mark the shared
+     * transaction rollback-only and the commit would fail with UnexpectedRollbackException.
+     * Catching it here, before it reaches the proxy, keeps the transaction healthy.
+     * <p>
+     * This is only safe because doPlaceHold performs ALL business checks before its single
+     * state change. A rejected hold must leave nothing behind; keep that order when editing.
+     * Technical errors (database down, ...) are not caught: they must roll everything back.
+     */
+    @Transactional
+    public HoldResult tryPlaceHold(PlaceHoldRequest request) {
+        try {
+            Hold hold = doPlaceHold(request);
+            return new HoldResult.Held(hold.getId(), hold.getAmount());
+        } catch (BusinessException e) {
+            log.info("Hold rejected for transfer {}: {}", request.transferId(), e.getErrorCode());
+            return new HoldResult.Rejected(e.getErrorCode().name(), e.getMessage());
+        }
+    }
+
+    private Hold doPlaceHold(PlaceHoldRequest request){
         // 1) Already placed? (any state counts: a released hold must not be placed again)
         var existing = holdRepository.findByTransferId(request.transferId());
         if (existing.isPresent()) {
-            return HoldResponse.from(existing.get());
+            return existing.get();
         }
 
         // 2) Validate the target now: catching problems before money is held
@@ -60,7 +86,7 @@ public class HoldService {
         // 4) Re-check after the lock: a concurrent call with the same transferId may have just committed.
         existing = holdRepository.findByTransferId(request.transferId());
         if (existing.isPresent()) {
-            return HoldResponse.from(existing.get());
+            return existing.get();
         }
 
         // 5) Ownership (same rule and same "not found" disguise as in 3.3).
@@ -68,13 +94,13 @@ public class HoldService {
             throw new AccountNotFoundException(request.sourceIban());
         }
 
-        // 6) Domain rules: active, currency, available balance.
+        // 6) The ONLY state change, after every business check (see tryPlaceHold).
         source.hold(request.amount(), request.currency());
 
         Hold hold = holdRepository.saveAndFlush(Hold.place(request.transferId(), source, target, request.amount()));
         log.info("Hold placed for transfer {}: {} {} on {}", request.transferId(),
                 request.amount(), request.currency(), request.sourceIban());
-        return HoldResponse.from(hold);
+        return hold;
     }
 
     @Transactional
