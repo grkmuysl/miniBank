@@ -62,9 +62,25 @@ public class Transfer extends BaseEntity {
     @Column(length = 64, updatable = false)
     private String requestId;
 
-    public static Transfer createPending(String initiatorId,
-                                         String idempotencyKey,
+    /** Synchronous flow (3.x): first attempt in the request, retries by the job. */
+    public static Transfer createPending(String initiatorId, String idempotencyKey,
                                          CreateTransferRequest request, String requestId) {
+        Transfer transfer = newPending(initiatorId, idempotencyKey, request, requestId);
+        transfer.nextAttemptAt = Instant.now().plus(INITIAL_RETRY_DELAY);
+        return transfer;
+    }
+
+    /**
+     * Saga flow (5.x): driven by Kafka messages. nextAttemptAt stays NULL on purpose,
+     * so the synchronous retry job never picks this transfer up and moves money over HTTP.
+     */
+    public static Transfer createForSaga(String initiatorId, String idempotencyKey,
+                                         CreateTransferRequest request, String requestId) {
+        return newPending(initiatorId, idempotencyKey, request, requestId);
+    }
+
+    private static Transfer newPending(String initiatorId, String idempotencyKey,
+                                       CreateTransferRequest request, String requestId) {
         Transfer transfer = new Transfer();
         transfer.initiatorId = initiatorId;
         transfer.idempotencyKey = idempotencyKey;
@@ -73,9 +89,8 @@ public class Transfer extends BaseEntity {
         transfer.amount = request.amount();
         transfer.currency = request.currency();
         transfer.description = request.description();
-        transfer.status = TransferStatus.PENDING;
         transfer.requestId = requestId;
-        transfer.nextAttemptAt = Instant.now().plus(INITIAL_RETRY_DELAY);
+        transfer.status = TransferStatus.PENDING;
         return transfer;
     }
 
@@ -102,6 +117,12 @@ public class Transfer extends BaseEntity {
         this.status = TransferStatus.FAILED;
         this.failureReason = truncate(reason, 100);
         this.nextAttemptAt = null;
+    }
+
+    /** Saga: account-service confirmed the hold. */
+    public void markFundsHeld() {
+        requirePending();
+        this.status = TransferStatus.FUNDS_HELD;
     }
 
     /** Outcome unknown; try again at the given time. */

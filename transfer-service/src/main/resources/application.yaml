@@ -55,6 +55,7 @@ management:
 
 
 transfer:
+  flow: ${TRANSFER_FLOW:saga}
   retry:
     max-attempts: ${TRANSFER_RETRY_MAX_ATTEMPTS:8}
     base-delay: ${TRANSFER_RETRY_BASE_DELAY:5s}
