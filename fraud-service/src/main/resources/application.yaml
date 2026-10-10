@@ -35,3 +35,18 @@ management:
 logging:
   pattern:
     level: "%5p [%X{requestId:-}]"
+
+fraud:
+  # Max amount of a single transfer, per currency. A currency missing here is rejected (fail-closed).
+  amount-limit:
+    TRY: 50000
+    USD: 1500
+    EUR: 1400
+  # Max amount to a beneficiary this customer has never been approved for before.
+  new-beneficiary-limit:
+    TRY: 10000
+    USD: 300
+    EUR: 280
+  velocity:
+    max-checks: 3      # a 4th transfer within the window is rejected
+    window: 10m
