@@ -47,4 +47,8 @@ public class RequestIdFilter extends OncePerRequestFilter {
             MDC.remove(MDC_KEY);
         }
     }
+
+    public static boolean isValid(String requestId) {
+        return requestId != null && VALID.matcher(requestId).matches();
+    }
 }

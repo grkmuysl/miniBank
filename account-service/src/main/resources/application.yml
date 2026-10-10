@@ -16,7 +16,22 @@ spring:
           issuer-uri: http://localhost:8180/realms/minibank
           jwk-set-uri: http://localhost:8180/realms/minibank/protocol/openid-connect/certs
           audiences: account-service
-
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9094}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # Broker confirms only after all in-sync replicas have the message.
+      acks: all
+      properties:
+        # Fail fast when the broker is unreachable instead of blocking the shared scheduler thread for 60s.
+        max.block.ms: 5000
+    consumer:
+      group-id: ${spring.application.name}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # A brand-new consumer group starts from the beginning of the topic, not from "now".
+      auto-offset-reset: earliest
 management:
   endpoints:
     web:

@@ -14,6 +14,8 @@ public record AccountResponse(
         String ownerName,
         Currency currency,
         BigDecimal balance,
+        BigDecimal heldAmount,
+        BigDecimal availableBalance,
         AccountStatus status,
         Instant createdAt,
         Instant updatedAts
@@ -32,6 +34,8 @@ public record AccountResponse(
                 account.getOwnerName(),
                 account.getCurrency(),
                 account.getBalance(),
+                account.getHeldAmount(),
+                account.getAvailableBalance(),
                 account.getStatus(),
                 account.getCreatedAt(),
                 account.getUpdatedAt()

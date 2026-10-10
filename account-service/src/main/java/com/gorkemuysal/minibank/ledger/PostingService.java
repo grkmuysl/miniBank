@@ -1,6 +1,7 @@
 package com.gorkemuysal.minibank.ledger;
 
 import com.gorkemuysal.minibank.account.Account;
+import com.gorkemuysal.minibank.account.AccountLocker;
 import com.gorkemuysal.minibank.account.AccountRepository;
 import com.gorkemuysal.minibank.exception.AccountNotFoundException;
 import com.gorkemuysal.minibank.ledger.dto.CreatePostingRequest;
@@ -16,8 +17,8 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class PostingService {
 
-    private final AccountRepository accountRepository;
     private final PostingRepository postingRepository;
+    private final AccountLocker accountLocker;
 
     /**
      * Moves money between two accounts and records it in the ledger, atomically.
@@ -32,7 +33,7 @@ public class PostingService {
         }
 
         // 2) Lock both accounts in a fixed (alphabetical) order to prevent deadlocks.
-        LockedPair accounts = lockInOrder(request.sourceIban(), request.targetIban());
+        AccountLocker.LockedPair accounts = accountLocker.lockPair(request.sourceIban(), request.targetIban());
 
         // 3) Re-check after acquiring the locks. A concurrent call with the same transferId
         //    may have committed while we were waiting. In READ COMMITTED each statement sees
@@ -63,23 +64,7 @@ public class PostingService {
         return PostingResponse.from(request.transferId(), List.of(debit, credit));
     }
 
-    /**
-     * Locks the two accounts always in the same order (by IBAN), regardless of transfer direction.
-     * Without this, A->B and B->A running concurrently could each hold one lock and wait
-     * for the other forever (deadlock).
-     */
-    private LockedPair lockInOrder(String sourceIban, String targetIban) {
-        boolean sourceFirst = sourceIban.compareTo(targetIban) < 0;
-        String firstIban = sourceFirst ? sourceIban : targetIban;
-        String secondIban = sourceFirst ? targetIban : sourceIban;
 
-        Account first = accountRepository.findByAccountNumberForUpdate(firstIban)
-                .orElseThrow(() -> new AccountNotFoundException(firstIban));
-        Account second = accountRepository.findByAccountNumberForUpdate(secondIban)
-                .orElseThrow(() -> new AccountNotFoundException(secondIban));
-
-        return sourceFirst ? new LockedPair(first, second) : new LockedPair(second, first);
-    }
 
     /** Returns the result of an already posted transfer, if any. Runs in its own read-only transaction. */
     @Transactional(readOnly = true)
@@ -90,6 +75,4 @@ public class PostingService {
                 : Optional.of(PostingResponse.from(transferId, postings));
     }
 
-    private record LockedPair(Account source, Account target) {
-    }
 }

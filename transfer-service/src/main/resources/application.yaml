@@ -31,7 +31,22 @@ spring:
         provider:
           keycloak:
             token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:8180/realms/minibank/protocol/openid-connect/token}
-
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9094}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # Broker confirms only after all in-sync replicas have the message.
+      properties:
+        # Fail fast when the broker is unreachable instead of blocking the shared scheduler thread for 60s.
+        max.block.ms: 5000
+      acks: all
+    consumer:
+      group-id: ${spring.application.name}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # A brand-new consumer group starts from the beginning of the topic, not from "now".
+      auto-offset-reset: earliest
 account-service:
   base-url: ${ACCOUNT_SERVICE_URL:http://localhost:8080}
 
@@ -43,6 +58,7 @@ management:
 
 
 transfer:
+  flow: ${TRANSFER_FLOW:saga}
   retry:
     max-attempts: ${TRANSFER_RETRY_MAX_ATTEMPTS:8}
     base-delay: ${TRANSFER_RETRY_BASE_DELAY:5s}

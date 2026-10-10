@@ -34,9 +34,7 @@ public class RequestIdFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
         String incoming = request.getHeader(HEADER);
-        String requestId = (incoming != null && VALID.matcher(incoming).matches())
-                ? incoming
-                : UUID.randomUUID().toString();
+        String requestId = isValid(incoming) ? incoming : UUID.randomUUID().toString();
 
         MDC.put(MDC_KEY, requestId);
         response.setHeader(HEADER, requestId);
@@ -45,5 +43,10 @@ public class RequestIdFilter extends OncePerRequestFilter {
         } finally {
             MDC.remove(MDC_KEY);
         }
+    }
+
+    /** Same rule for every source of request IDs: HTTP headers and Kafka messages. */
+    public static boolean isValid(String requestId) {
+        return requestId != null && VALID.matcher(requestId).matches();
     }
 }

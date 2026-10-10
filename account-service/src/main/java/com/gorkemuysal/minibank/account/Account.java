@@ -34,6 +34,9 @@ public class Account extends BaseEntity {
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal balance;
 
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal heldAmount;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private AccountStatus status;
@@ -47,6 +50,7 @@ public class Account extends BaseEntity {
         this.ownerName = ownerName;
         this.currency = currency;
         this.balance = BigDecimal.ZERO.setScale(2);
+        this.heldAmount = BigDecimal.ZERO.setScale(2);
         this.status = AccountStatus.ACTIVE;
     }
 
@@ -64,12 +68,50 @@ public class Account extends BaseEntity {
     }
 
     // handle withdraw operations with specific amount and currency
-    public void withdraw(BigDecimal amount , Currency currency){
+    public void withdraw(BigDecimal amount, Currency currency) {
         ensureValidAmount(amount);
         ensureActive();
         ensureSameCurrency(currency);
-        ensureSufficientBalance(amount);
+        ensureSufficientAvailableBalance(amount);   // held money cannot be withdrawn
         this.balance = this.balance.subtract(amount);
+    }
+
+    /** Money that can actually be spent: total balance minus what is reserved by holds. */
+    public BigDecimal getAvailableBalance() {
+        return balance.subtract(heldAmount);
+    }
+
+    /**
+     * Reserves money for a pending transfer. The balance does not change, but the held
+     * part can no longer be withdrawn or reserved again. Reversible via releaseHold.
+     */
+    public void hold(BigDecimal amount, Currency currency) {
+        ensureValidAmount(amount);
+        ensureActive();
+        ensureSameCurrency(currency);
+        ensureSufficientAvailableBalance(amount);
+        this.heldAmount = this.heldAmount.add(amount);
+    }
+
+    /**
+     * Turns a hold into a real debit: the money leaves the account. Irreversible.
+     * Requires an active account; if this fails, the saga releases the hold instead.
+     */
+    public void captureHold(BigDecimal amount) {
+        ensureActive();
+        ensureHeldAtLeast(amount);
+        this.heldAmount = this.heldAmount.subtract(amount);
+        this.balance = this.balance.subtract(amount);
+    }
+
+    /**
+     * Cancels a hold; the money becomes available again.
+     * Deliberately has NO business checks (e.g. account status): this is a compensation step
+     * and must always succeed, otherwise the customer's money would stay blocked forever.
+     */
+    public void releaseHold(BigDecimal amount) {
+        ensureHeldAtLeast(amount);
+        this.heldAmount = this.heldAmount.subtract(amount);
     }
 
     // handle convert status of account from active to frozen.
@@ -120,13 +162,24 @@ public class Account extends BaseEntity {
     }
 
     /**
-     * Checks balance is sufficeint or not.
+     * Checks that enough unreserved money is available.
      *
-     * @throws InsufficientBalanceException if balance is insufficient
-     * */
-    private void ensureSufficientBalance(BigDecimal amount) {
-        if (balance.compareTo(amount) < 0) {
-            throw new InsufficientBalanceException("Insufficient balance.");
+     * @throws InsufficientBalanceException if available balance is insufficient
+     */
+    private void ensureSufficientAvailableBalance(BigDecimal amount) {
+        if (getAvailableBalance().compareTo(amount) < 0) {
+            throw new InsufficientBalanceException("Insufficient available balance.");
+        }
+    }
+
+    /**
+     * Internal invariant: we can only capture or release what is actually held.
+     * A violation means a bug (e.g. the same hold processed twice), not a customer error.
+     */
+    private void ensureHeldAtLeast(BigDecimal amount) {
+        if (heldAmount.compareTo(amount) < 0) {
+            throw new IllegalStateException(
+                    "Cannot release/capture " + amount + ": only " + heldAmount + " is held on account " + getId());
         }
     }
 

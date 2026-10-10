@@ -21,4 +21,11 @@ public interface AccountRepository extends JpaRepository<Account , Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from Account a where a.accountNumber = :accountNumber")
     Optional<Account> findByAccountNumberForUpdate(@Param("accountNumber") String accountNumber);
+
+    Optional<Account> findByAccountNumber(String accountNumber);
+
+    /** Reads only the IBAN, without loading (and caching) the Account entity. */
+    @Query("select a.accountNumber from Account a where a.id = :id")
+    Optional<String> findAccountNumberById(@Param("id") Long id);
+
 }
