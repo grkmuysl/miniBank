@@ -1,6 +1,5 @@
 package com.gorkemuysal.minibank.transfer.messaging;
 
-import com.gorkemuysal.minibank.messaging.MessageEnvelope;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;

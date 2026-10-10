@@ -4,21 +4,34 @@ import com.gorkemuysal.minibank.transfer.common.RequestIdFilter;
 import com.gorkemuysal.minibank.transfer.dto.CreateTransferRequest;
 import com.gorkemuysal.minibank.transfer.exception.BusinessException;
 import com.gorkemuysal.minibank.transfer.exception.ErrorCode;
+import com.gorkemuysal.minibank.transfer.messaging.AccountTopics;
+import com.gorkemuysal.minibank.transfer.messaging.HoldFundsPayload;
+import com.gorkemuysal.minibank.transfer.messaging.MessageTypes;
+import com.gorkemuysal.minibank.transfer.messaging.OutboxWriter;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TransferService {
 
     private final TransferRepository transferRepository;
     private final TransferProcessor transferProcessor;
+    private final OutboxWriter outboxWriter;
+    private final TransactionTemplate transactionTemplate;
+
+    @Value("${transfer.flow}")
+    private TransferFlow flow;
 
     /**
      * Creates a PENDING transfer in an idempotent way.
@@ -51,15 +64,18 @@ public class TransferService {
             return replay(existing.get(), request);
         }
 
-        // 2) Insert a new transfer. The real guarantee is the UNIQUE (initiator_id, idempotency_key)
-        //    constraint in the database. saveAndFlush (instead of save) forces the INSERT to run
-        //    right here, so a constraint violation is thrown inside this try block.
+        // 2) Insert a new transfer. Either flow: the UNIQUE constraint is the real guarantee.
         try {
-            Transfer saved = transferRepository.saveAndFlush(
-                    Transfer.createPending(initiatorId, idempotencyKey, request,
-                            MDC.get(RequestIdFilter.MDC_KEY)));
-            Transfer processed = transferProcessor.process(saved.getId());
-            return new CreateTransferResult(processed, true);
+            Transfer result = switch (flow) {
+                case SAGA -> startSaga(initiatorId, idempotencyKey, request);
+                case SYNC -> {
+                    Transfer saved = transferRepository.saveAndFlush(
+                            Transfer.createPending(initiatorId, idempotencyKey, request,
+                                    MDC.get(RequestIdFilter.MDC_KEY)));
+                    yield transferProcessor.process(saved.getId());
+                }
+            };
+            return new CreateTransferResult(result, true);
         } catch (DataIntegrityViolationException e) {
             // 3) We lost the race: a concurrent request with the same key inserted first.
             //    PostgreSQL blocks our INSERT until the other transaction commits, so by the time
@@ -101,5 +117,24 @@ public class TransferService {
     @Transactional(readOnly = true)
     public List<Transfer> listForInitiator(String initiatorId) {
         return transferRepository.findAllByInitiatorIdOrderByCreatedAtDesc(initiatorId);
+    }
+
+    /**
+     * Saga flow: the transfer and its first command are written in ONE transaction (outbox).
+     * No remote call here; the poller publishes HOLD_FUNDS and the reply arrives via Kafka.
+     * The customer always gets 202 PENDING and follows the outcome with GET /transfers/{id}.
+     */
+    private Transfer startSaga(String initiatorId, String idempotencyKey, CreateTransferRequest request) {
+        return transactionTemplate.execute(status -> {
+            Transfer transfer = transferRepository.saveAndFlush(
+                    Transfer.createForSaga(initiatorId, idempotencyKey, request,
+                            MDC.get(RequestIdFilter.MDC_KEY)));
+
+            outboxWriter.write(AccountTopics.COMMANDS, MessageTypes.HOLD_FUNDS,
+                    transfer.getId(), transfer.getRequestId(), HoldFundsPayload.from(transfer));
+
+            log.info("Transfer {} created, HOLD_FUNDS queued", transfer.getId());
+            return transfer;
+        });
     }
 }

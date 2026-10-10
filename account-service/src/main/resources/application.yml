@@ -23,6 +23,9 @@ spring:
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
       # Broker confirms only after all in-sync replicas have the message.
       acks: all
+      properties:
+        # Fail fast when the broker is unreachable instead of blocking the shared scheduler thread for 60s.
+        max.block.ms: 5000
     consumer:
       group-id: ${spring.application.name}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
