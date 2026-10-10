@@ -98,6 +98,22 @@ services:
       keycloak:
         condition: service_started
 
+  fraud-service:
+    build:
+      context: .
+      dockerfile: fraud-service/Dockerfile
+    profiles: [ "app" ]
+    # no "ports": only Kafka talks to it
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/frauddb
+      SPRING_DATASOURCE_USERNAME: fraud_app
+      SPRING_DATASOURCE_PASSWORD: local_dev_only
+      KAFKA_BOOTSTRAP: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
   api-gateway:
     build:
       context: .
