@@ -5,7 +5,6 @@ import com.gorkemuysal.minibank.account.AccountLocker;
 import com.gorkemuysal.minibank.account.AccountRepository;
 import com.gorkemuysal.minibank.account.AccountStatus;
 import com.gorkemuysal.minibank.exception.*;
-import com.gorkemuysal.minibank.hold.dto.HoldResponse;
 import com.gorkemuysal.minibank.hold.dto.PlaceHoldRequest;
 import com.gorkemuysal.minibank.ledger.Posting;
 import com.gorkemuysal.minibank.ledger.PostingRepository;
@@ -33,11 +32,6 @@ public class HoldService {
     private final AccountLocker accountLocker;
     private final PostingRepository postingRepository;
 
-    /** REST path: business failures are thrown and mapped to HTTP errors by GlobalExceptionHandler. */
-    @Transactional
-    public HoldResponse placeHold(PlaceHoldRequest request) {
-        return HoldResponse.from(doPlaceHold(request));
-    }
 
     /**
      * Messaging path: business failures are returned as {@link HoldResult.Rejected}.
@@ -105,11 +99,6 @@ public class HoldService {
         return hold;
     }
 
-    @Transactional
-    public HoldResponse capture(Long transferId) {
-        return HoldResponse.from(doCapture(transferId));
-    }
-
     /**
      * Messaging path: business failures become {@link CaptureResult.Rejected}.
      * Safe ONLY because doCapture validates both accounts before changing either (see there).
@@ -163,11 +152,6 @@ public class HoldService {
             }
         }
         return hold;
-    }
-
-    @Transactional
-    public HoldResponse release(Long transferId) {
-        return HoldResponse.from(doRelease(transferId));
     }
 
     /**

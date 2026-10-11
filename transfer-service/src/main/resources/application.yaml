@@ -20,17 +20,7 @@ spring:
           issuer-uri: http://localhost:8180/realms/minibank
           jwk-set-uri: http://localhost:8180/realms/minibank/protocol/openid-connect/certs
           audiences: transfer-service
-      # Outgoing requests: obtain our own token for account-service
-      client:
-        registration:
-          account-service:
-            provider: keycloak
-            client-id: transfer-service-client
-            client-secret: ${ACCOUNT_CLIENT_SECRET}
-            authorization-grant-type: client_credentials
-        provider:
-          keycloak:
-            token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:8180/realms/minibank/protocol/openid-connect/token}
+
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9094}
     producer:
@@ -47,8 +37,6 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       # A brand-new consumer group starts from the beginning of the topic, not from "now".
       auto-offset-reset: earliest
-account-service:
-  base-url: ${ACCOUNT_SERVICE_URL:http://localhost:8080}
 
 management:
   endpoints:
@@ -58,14 +46,9 @@ management:
 
 
 transfer:
-  flow: ${TRANSFER_FLOW:saga}
   saga:
     fraud-timeout: ${TRANSFER_FRAUD_TIMEOUT:5m}
     stuck-threshold: 10m
-  retry:
-    max-attempts: ${TRANSFER_RETRY_MAX_ATTEMPTS:8}
-    base-delay: ${TRANSFER_RETRY_BASE_DELAY:5s}
-    max-delay: ${TRANSFER_RETRY_MAX_DELAY:10m}
 
 logging:
   pattern:

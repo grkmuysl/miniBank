@@ -17,8 +17,6 @@ import java.time.Instant;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Transfer extends BaseEntity {
 
-    private static final Duration INITIAL_RETRY_DELAY = Duration.ofSeconds(30);
-
     @Column(nullable = false, length = 64)
     private String idempotencyKey;
 
@@ -51,14 +49,6 @@ public class Transfer extends BaseEntity {
     @Version
     private Long version;
 
-    @Column(nullable = false)
-    private int attemptCount;
-
-    private Instant nextAttemptAt;
-
-    @Column(length = 255)
-    private String lastError;
-
     @Column(length = 64, updatable = false)
     private String requestId;
 
@@ -69,25 +59,12 @@ public class Transfer extends BaseEntity {
     /** Only set while FUNDS_HELD: when the fraud check times out. */
     private Instant stateDeadlineAt;
 
-    /** Synchronous flow (3.x): first attempt in the request, retries by the job. */
-    public static Transfer createPending(String initiatorId, String idempotencyKey,
-                                         CreateTransferRequest request, String requestId) {
-        Transfer transfer = newPending(initiatorId, idempotencyKey, request, requestId);
-        transfer.nextAttemptAt = Instant.now().plus(INITIAL_RETRY_DELAY);
-        return transfer;
-    }
-
     /**
      * Saga flow (5.x): driven by Kafka messages. nextAttemptAt stays NULL on purpose,
      * so the synchronous retry job never picks this transfer up and moves money over HTTP.
      */
-    public static Transfer createForSaga(String initiatorId, String idempotencyKey,
-                                         CreateTransferRequest request, String requestId) {
-        return newPending(initiatorId, idempotencyKey, request, requestId);
-    }
-
-    private static Transfer newPending(String initiatorId, String idempotencyKey,
-                                       CreateTransferRequest request, String requestId) {
+    public static Transfer create(String initiatorId, String idempotencyKey,
+                                  CreateTransferRequest request, String requestId) {
         Transfer transfer = new Transfer();
         transfer.initiatorId = initiatorId;
         transfer.idempotencyKey = idempotencyKey;
@@ -112,19 +89,6 @@ public class Transfer extends BaseEntity {
         return status == TransferStatus.PENDING;
     }
 
-    public void markCompleted() {
-        requirePending();
-        this.status = TransferStatus.COMPLETED;
-        this.nextAttemptAt = null;
-        this.lastError = null;
-    }
-
-    public void markFailed(String reason) {
-        requirePending();
-        this.status = TransferStatus.FAILED;
-        this.failureReason = truncate(reason, 100);
-        this.nextAttemptAt = null;
-    }
 
     // ---- Saga events. Each one accepts exactly one current state. ----
 
@@ -186,28 +150,6 @@ public class Transfer extends BaseEntity {
                     "Transfer " + getId() + ": transition " + status + " -> " + next + " is not allowed");
         }
         this.status = next;
-    }
-
-    /** Outcome unknown; try again at the given time. */
-    public void scheduleRetry(String error, Instant nextAttemptAt) {
-        requirePending();
-        this.attemptCount++;
-        this.lastError = truncate(error, 255);
-        this.nextAttemptAt = nextAttemptAt;
-    }
-
-    /** Outcome still unknown after the last allowed attempt; hand over to a human. */
-    public void markManualReview(String error) {
-        requirePending();
-        this.attemptCount++;
-        this.status = TransferStatus.MANUAL_REVIEW;
-        this.lastError = truncate(error, 255);
-        this.nextAttemptAt = null;
-    }
-
-    /** Final states never change: a COMPLETED transfer must not silently become FAILED. */
-    private void requirePending() {
-        requireStatus(TransferStatus.PENDING);
     }
 
     /** Each saga step may only start from the state that expects it. */
