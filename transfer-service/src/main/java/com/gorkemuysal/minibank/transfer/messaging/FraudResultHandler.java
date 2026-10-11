@@ -4,6 +4,7 @@ import com.gorkemuysal.minibank.transfer.Transfer;
 import com.gorkemuysal.minibank.transfer.TransferRepository;
 import com.gorkemuysal.minibank.transfer.TransferStatus;
 import com.gorkemuysal.minibank.transfer.messaging.payload.FraudResultPayload;
+import com.gorkemuysal.minibank.transfer.saga.SagaCommands;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -19,6 +20,7 @@ public class FraudResultHandler {
     private final Inbox inbox;
     private final TransferRepository transferRepository;
     private final JsonMapper jsonMapper;
+    private final SagaCommands sagaCommands;
 
     @Transactional
     public void handle(MessageEnvelope message) {
@@ -34,7 +36,8 @@ public class FraudResultHandler {
             return;
         }
         if (transfer.getStatus() != TransferStatus.FUNDS_HELD) {
-            // fraud-service re-publishes stored decisions, so duplicates are expected.
+            // Duplicates (fraud-service re-publishes stored decisions) and late decisions
+            // (after a FRAUD_TIMEOUT) end up here. A late approval must NOT capture.
             log.info("Fraud result {} for transfer {} ignored: transfer is already {}",
                     message.type(), transfer.getId(), transfer.getStatus());
             return;
@@ -42,14 +45,16 @@ public class FraudResultHandler {
 
         switch (message.type()) {
             case MessageTypes.FRAUD_APPROVED -> {
-                transfer.markFraudApproved();
-                log.info("Transfer {} approved by fraud check", transfer.getId());
+                transfer.onFraudApproved();
+                sagaCommands.captureFunds(transfer);
+                log.info("Transfer {} approved by fraud check, capture requested", transfer.getId());
             }
             case MessageTypes.FRAUD_REJECTED -> {
                 FraudResultPayload p = jsonMapper.treeToValue(message.payload(), FraudResultPayload.class);
                 String reasons = String.join(",", p.reasons());
-                transfer.markFraudRejected(reasons);
-                log.info("Transfer {} rejected by fraud check: {}", transfer.getId(), reasons);
+                transfer.onFraudRejected(reasons);
+                sagaCommands.releaseFunds(transfer);
+                log.info("Transfer {} rejected by fraud check ({}), release requested", transfer.getId(), reasons);
             }
             default -> throw new IllegalArgumentException("Unknown fraud result type: " + message.type());
         }

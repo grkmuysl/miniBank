@@ -29,4 +29,20 @@ public interface TransferRepository extends JpaRepository<Transfer, Long> {
             order by t.nextAttemptAt
             """)
     List<Long> findIdsDueForRetry(@Param("now") Instant now, Pageable pageable);
+
+    @Query("""
+            select t.id from Transfer t
+            where t.status = com.gorkemuysal.minibank.transfer.TransferStatus.FUNDS_HELD
+              and t.stateDeadlineAt <= :now
+            order by t.stateDeadlineAt
+            """)
+    List<Long> findIdsPastFraudDeadline(@Param("now") Instant now, Pageable pageable);
+
+    @Query("""
+            select t.id from Transfer t
+            where t.status in (com.gorkemuysal.minibank.transfer.TransferStatus.CAPTURING,
+                               com.gorkemuysal.minibank.transfer.TransferStatus.RELEASING)
+              and t.updatedAt < :before
+            """)
+    List<Long> findIdsInFlightSince(@Param("before") Instant before, Pageable pageable);
 }

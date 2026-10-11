@@ -14,23 +14,34 @@ public record TransferResponse(
         BigDecimal amount,
         Currency currency,
         String description,
-        TransferStatus status,
+        CustomerTransferStatus status,
         String failureReason,
         String requestId,     // reference number: ID of the request that created this transfer
         Instant createdAt
 ) {
-    /** Generic code shown to customers instead of the exact fraud rules (see 5.3). */
-    static final String RISK_DECLINED = "DECLINED_BY_RISK_CHECK";
 
     public static TransferResponse from(Transfer t) {
-        // Exact rule codes would teach an attacker how to evade them; keep them internal.
-        String failureReason = t.getStatus() == TransferStatus.FRAUD_REJECTED
-                ? RISK_DECLINED
-                : t.getFailureReason();
-
         return new TransferResponse(
                 t.getId(), t.getSourceIban(), t.getTargetIban(), t.getAmount(),
-                t.getCurrency(), t.getDescription(), t.getStatus(),
-                failureReason, t.getRequestId(), t.getCreatedAt());
+                t.getCurrency(), t.getDescription(),
+                CustomerTransferStatus.of(t.getStatus()),
+                customerReason(t),
+                t.getRequestId(), t.getCreatedAt());
+    }
+
+    /**
+     * Never expose internal details: exact fraud rules would teach evasion, and a capture
+     * failure like ACCOUNT_NOT_ACTIVE would reveal the state of someone else's account.
+     */
+    private static String customerReason(Transfer t) {
+        return switch (t.getStatus()) {
+            case FAILED -> t.getFailureReason();   // about the customer's own account
+            case REJECTED -> switch (t.getReleaseReason()) {
+                case FRAUD_REJECTED -> "DECLINED_BY_RISK_CHECK";
+                case FRAUD_TIMEOUT -> "RISK_CHECK_TIMED_OUT";
+                case CAPTURE_FAILED -> "TRANSFER_COULD_NOT_BE_COMPLETED";
+            };
+            default -> null;
+        };
     }
 }
