@@ -14,6 +14,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+
 /**
  * Hold lifecycle: place -> capture | release. All three operations are idempotent per transferId,
  * because in 5.2 Kafka may deliver the same command more than once.
@@ -105,66 +107,123 @@ public class HoldService {
 
     @Transactional
     public HoldResponse capture(Long transferId) {
-        // 1) Unmanaged read: we need the account IDs to lock, but must not cache the entity yet.
+        return HoldResponse.from(doCapture(transferId));
+    }
+
+    /**
+     * Messaging path: business failures become {@link CaptureResult.Rejected}.
+     * Safe ONLY because doCapture validates both accounts before changing either (see there).
+     */
+    @Transactional
+    public CaptureResult tryCapture(Long transferId) {
+        try {
+            Hold hold = doCapture(transferId);
+            return new CaptureResult.Captured(hold.getAmount());
+        } catch (BusinessException e) {
+            log.warn("Capture rejected for transfer {}: {}", transferId, e.getErrorCode());
+            return new CaptureResult.Rejected(e.getErrorCode().name(), e.getMessage());
+        }
+    }
+
+    private Hold doCapture(Long transferId) {
         HoldRef ref = holdRepository.findRefByTransferId(transferId)
                 .orElseThrow(() -> new HoldNotFoundException(transferId));
         if (ref.status() == HoldStatus.CAPTURED) {
-            return HoldResponse.from(holdRepository.findByTransferId(transferId).orElseThrow());
+            return holdRepository.findByTransferId(transferId).orElseThrow();
         }
 
-        // 2) Lock both accounts in the global IBAN order.
         String sourceIban = accountRepository.findAccountNumberById(ref.accountId()).orElseThrow();
         String targetIban = accountRepository.findAccountNumberById(ref.targetAccountId()).orElseThrow();
         AccountLocker.LockedPair accounts = accountLocker.lockPair(sourceIban, targetIban);
 
-        // 3) Lock and load the hold itself; this is its first load in this transaction, so it is fresh.
         Hold hold = holdRepository.findByTransferIdForUpdate(transferId).orElseThrow();
         switch (hold.getStatus()) {
             case CAPTURED -> {
-                return HoldResponse.from(hold);          // a concurrent call finished first
+                return hold;
             }
-            case RELEASED -> hold.markCaptured();         // throws INVALID_HOLD_STATE
+            case RELEASED -> hold.markCaptured();   // throws INVALID_HOLD_STATE, nothing changed yet
             case HELD -> {
-                // Irreversible step: money leaves the source and arrives at the target.
-                // If either account check fails, the exception rolls back everything.
-                accounts.source().captureHold(hold.getAmount());
-                accounts.target().deposit(hold.getAmount(), accounts.source().getCurrency());
+                BigDecimal amount = hold.getAmount();
 
-                postingRepository.saveAndFlush(Posting.debit(transferId, accounts.source(), hold.getAmount()));
-                postingRepository.saveAndFlush(Posting.credit(transferId, accounts.target(), hold.getAmount()));
+                // VALIDATE BOTH SIDES FIRST. tryCapture turns business errors into a reply and
+                // COMMITS. If deposit failed after captureHold had already run, the debit would be
+                // committed without the credit: money would vanish. After these two lines,
+                // no business rule can fail anymore.
+                accounts.source().verifyCanCaptureHold(amount);
+                accounts.target().verifyCanReceive(amount, accounts.source().getCurrency());
+
+                accounts.source().captureHold(amount);
+                accounts.target().deposit(amount, accounts.source().getCurrency());
+
+                postingRepository.saveAndFlush(Posting.debit(transferId, accounts.source(), amount));
+                postingRepository.saveAndFlush(Posting.credit(transferId, accounts.target(), amount));
 
                 hold.markCaptured();
                 log.info("Hold captured for transfer {}", transferId);
             }
         }
-        return HoldResponse.from(hold);
+        return hold;
     }
 
     @Transactional
     public HoldResponse release(Long transferId) {
+        return HoldResponse.from(doRelease(transferId));
+    }
+
+    /**
+     * Messaging path for the saga's compensation. Must never fail for a business reason:
+     * <ul>
+     *   <li>HELD: released.</li>
+     *   <li>RELEASED: already done, nothing to do.</li>
+     *   <li>No hold at all (it was never placed): nothing to release, still a success.</li>
+     *   <li>CAPTURED: an inconsistency, a bug in the saga. Thrown as a TECHNICAL error so that it
+     *       is retried and, from 5.5 on, ends up in the DLT. A compensation is never silently swallowed.</li>
+     * </ul>
+     */
+    @Transactional
+    public void releaseForCompensation(Long transferId) {
+        try {
+            doRelease(transferId);
+        } catch (HoldNotFoundException e) {
+            log.info("Release for transfer {}: no hold was ever placed, nothing to release", transferId);
+        } catch (InvalidHoldStateException e) {
+            log.error("SAGA INCONSISTENCY: release requested for transfer {} whose hold is already CAPTURED",
+                    transferId);
+            throw new IllegalStateException("Cannot release a captured hold, transfer " + transferId, e);
+        }
+    }
+
+    /**
+     * Shared by the REST path (release) and the saga (releaseForCompensation).
+     * Throws HoldNotFoundException if no hold exists, InvalidHoldStateException if it is CAPTURED.
+     * Changes nothing before the hold's state has been checked under lock.
+     */
+    private Hold doRelease(Long transferId) {
+        // 1) Unmanaged read: we need the source account to lock, without caching the Hold entity yet.
         HoldRef ref = holdRepository.findRefByTransferId(transferId)
                 .orElseThrow(() -> new HoldNotFoundException(transferId));
         if (ref.status() == HoldStatus.RELEASED) {
-            return HoldResponse.from(holdRepository.findByTransferId(transferId).orElseThrow());
+            return holdRepository.findByTransferId(transferId).orElseThrow();
         }
 
-        // Only the source account changes, so only it is locked.
+        // 2) Only the source account changes, so only it is locked (same global IBAN rule).
         String sourceIban = accountRepository.findAccountNumberById(ref.accountId()).orElseThrow();
         Account source = accountLocker.lock(sourceIban);
 
+        // 3) Lock and load the hold; first load in this transaction, so its state is fresh.
         Hold hold = holdRepository.findByTransferIdForUpdate(transferId).orElseThrow();
         switch (hold.getStatus()) {
             case RELEASED -> {
-                return HoldResponse.from(hold);
+                return hold;                       // a concurrent call finished first
             }
-            case CAPTURED -> hold.markReleased();          // throws INVALID_HOLD_STATE
+            case CAPTURED -> hold.markReleased();  // throws INVALID_HOLD_STATE, nothing changed
             case HELD -> {
-                // Compensation: no business checks, must always succeed (see Account.releaseHold).
+                // Compensation: no business checks (see Account.releaseHold); must always succeed.
                 source.releaseHold(hold.getAmount());
                 hold.markReleased();
                 log.info("Hold released for transfer {}", transferId);
             }
         }
-        return HoldResponse.from(hold);
+        return hold;
     }
 }

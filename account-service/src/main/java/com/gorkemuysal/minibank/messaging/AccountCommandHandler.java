@@ -1,18 +1,19 @@
 package com.gorkemuysal.minibank.messaging;
 
+import com.gorkemuysal.minibank.hold.CaptureResult;
 import com.gorkemuysal.minibank.hold.HoldResult;
 import com.gorkemuysal.minibank.hold.HoldService;
 import com.gorkemuysal.minibank.hold.dto.PlaceHoldRequest;
 import com.gorkemuysal.minibank.messaging.inbox.Inbox;
 import com.gorkemuysal.minibank.messaging.outbox.OutboxWriter;
-import com.gorkemuysal.minibank.messaging.payload.FundsHeldPayload;
-import com.gorkemuysal.minibank.messaging.payload.HoldFailedPayload;
-import com.gorkemuysal.minibank.messaging.payload.HoldFundsPayload;
+import com.gorkemuysal.minibank.messaging.payload.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
+
+import java.util.Map;
 
 /**
  * Processes one command in ONE transaction: inbox record + business change + outbox reply.
@@ -38,8 +39,8 @@ public class AccountCommandHandler {
 
         switch (message.type()) {
             case MessageTypes.HOLD_FUNDS -> handleHoldFunds(message);
-            // An unknown type is a contract/programming error, not a business outcome.
-            // Throwing lets Spring Kafka retry and then give up (DLT in 5.5).
+            case MessageTypes.CAPTURE_FUNDS -> handleCaptureFunds(message);
+            case MessageTypes.RELEASE_FUNDS -> handleReleaseFunds(message);
             default -> throw new IllegalArgumentException("Unknown command type: " + message.type());
         }
     }
@@ -55,5 +56,23 @@ public class AccountCommandHandler {
             case HoldResult.Rejected rejected -> outboxWriter.write(AccountTopics.REPLIES, MessageTypes.HOLD_FAILED,
                     message.transferId(), message.requestId(), new HoldFailedPayload(rejected.code(), rejected.message()));
         }
+    }
+
+    private void handleCaptureFunds(MessageEnvelope message) {
+        switch (holdService.tryCapture(message.transferId())) {
+            case CaptureResult.Captured captured -> outboxWriter.write(AccountTopics.REPLIES,
+                    MessageTypes.FUNDS_CAPTURED, message.transferId(), message.requestId(),
+                    new FundsCapturedPayload(captured.amount()));
+            case CaptureResult.Rejected rejected -> outboxWriter.write(AccountTopics.REPLIES,
+                    MessageTypes.CAPTURE_FAILED, message.transferId(), message.requestId(),
+                    new CaptureFailedPayload(rejected.code(), rejected.message()));
+        }
+    }
+
+    private void handleReleaseFunds(MessageEnvelope message) {
+        // Either succeeds or throws a technical error (rolls back, retried, DLT in 5.5).
+        holdService.releaseForCompensation(message.transferId());
+        outboxWriter.write(AccountTopics.REPLIES, MessageTypes.FUNDS_RELEASED,
+                message.transferId(), message.requestId(), Map.of());
     }
 }

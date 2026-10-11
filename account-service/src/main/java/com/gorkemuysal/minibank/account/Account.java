@@ -94,6 +94,22 @@ public class Account extends BaseEntity {
     }
 
     /**
+     * Throws exactly what deposit(amount, currency) would throw, but changes nothing.
+     * Lets a multi-account operation validate every account BEFORE mutating any of them.
+     */
+    public void verifyCanReceive(BigDecimal amount, Currency currency) {
+        ensureValidAmount(amount);
+        ensureActive();
+        ensureSameCurrency(currency);
+    }
+
+    /** Throws exactly what captureHold(amount) would throw, but changes nothing. */
+    public void verifyCanCaptureHold(BigDecimal amount) {
+        ensureActive();
+        ensureHeldAtLeast(amount);
+    }
+
+    /**
      * Turns a hold into a real debit: the money leaves the account. Irreversible.
      * Requires an active account; if this fails, the saga releases the hold instead.
      */
