@@ -60,18 +60,15 @@ public class SagaTimeoutJob {
     }
 
     /**
-     * CAPTURING / RELEASING are NOT timed out. In CAPTURING the capture may already have happened
-     * with its reply still on the way: releasing would try to undo a completed transfer. The
-     * commands are safe in Kafka and will be processed once account-service is back.
-     * We only make the situation visible (a metric and an alert in step 6).
+     * PENDING: the HOLD_FUNDS may be in the DLT. CAPTURING / RELEASING: account-service may be down.
+     * None of these is timed out automatically (CAPTURING is past the pivot); we make them visible.
      */
     @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
     public void warnAboutStuckTransfers() {
         Instant before = Instant.now().minus(sagaProperties.stuckThreshold());
-        List<Long> stuck = transferRepository.findIdsInFlightSince(before, PageRequest.of(0, BATCH_SIZE));
+        var stuck = transferRepository.findStuckSince(before, PageRequest.of(0, BATCH_SIZE));
         if (!stuck.isEmpty()) {
-            log.warn("{} transfer(s) in CAPTURING/RELEASING for more than {}: {}",
-                    stuck.size(), sagaProperties.stuckThreshold(), stuck);
+            log.warn("{} transfer(s) stuck for more than {}: {}", stuck.size(), sagaProperties.stuckThreshold(), stuck);
         }
     }
 }

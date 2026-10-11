@@ -23,6 +23,7 @@ public class FraudRequestHandler {
     private final FraudCheckService fraudCheckService;
     private final OutboxWriter outboxWriter;
     private final JsonMapper jsonMapper;
+    private final MessageValidator messageValidator;
 
     @Transactional
     public void handle(MessageEnvelope message) {
@@ -34,7 +35,8 @@ public class FraudRequestHandler {
             throw new IllegalArgumentException("Unknown message type: " + message.type());
         }
 
-        FraudCheckRequestedPayload p = payload(message, FraudCheckRequestedPayload.class);
+        FraudCheckRequestedPayload p = messageValidator.requireValid(
+                payload(message, FraudCheckRequestedPayload.class), message.type());
         FraudCheck check = fraudCheckService.check(new FraudCheckContext(
                 message.transferId(), p.initiatorId(), p.sourceIban(), p.targetIban(),
                 p.amount(), p.currency(), p.requestedAt()));

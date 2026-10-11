@@ -29,6 +29,7 @@ public class AccountCommandHandler {
     private final HoldService holdService;
     private final OutboxWriter outboxWriter;
     private final JsonMapper jsonMapper;
+    private final MessageValidator messageValidator;
 
     @Transactional
     public void handle(MessageEnvelope message) {
@@ -48,8 +49,10 @@ public class AccountCommandHandler {
 
     private void handleHoldFunds(MessageEnvelope message) {
         HoldFundsPayload p = payload(message, HoldFundsPayload.class);
-        var request = new PlaceHoldRequest(message.transferId(), p.initiatorId(),
-                p.sourceIban(), p.targetIban(), p.amount(), p.currency());
+        var request = messageValidator.requireValid(
+                new PlaceHoldRequest(message.transferId(), p.initiatorId(),
+                        p.sourceIban(), p.targetIban(), p.amount(), p.currency()),
+                message.type());
 
         switch (holdService.tryPlaceHold(request)) {
             case HoldResult.Held held -> outboxWriter.write(AccountTopics.REPLIES, MessageTypes.FUNDS_HELD,
