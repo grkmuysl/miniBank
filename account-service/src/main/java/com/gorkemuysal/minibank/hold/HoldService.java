@@ -168,12 +168,9 @@ public class HoldService {
     public void releaseForCompensation(Long transferId) {
         try {
             doRelease(transferId);
-        } catch (HoldNotFoundException e) {
-            log.info("Release for transfer {}: no hold was ever placed, nothing to release", transferId);
-        } catch (InvalidHoldStateException e) {
-            log.error("SAGA INCONSISTENCY: release requested for transfer {} whose hold is already CAPTURED",
-                    transferId);
-            throw new IllegalStateException("Cannot release a captured hold, transfer " + transferId, e);
+        }   catch (InvalidHoldStateException e) {
+            throw new SagaInvariantViolationException(
+                    "Release requested for transfer " + transferId + " whose hold is already CAPTURED", e);
         }
     }
 

@@ -11,6 +11,9 @@ import java.util.Optional;
 
 public interface TransferRepository extends JpaRepository<Transfer, Long> {
 
+    record StuckTransfer(Long id, TransferStatus status) {
+    }
+
     Optional<Transfer> findByInitiatorIdAndIdempotencyKey(String initiatorId, String idempotencyKey);
 
     Optional<Transfer> findByIdAndInitiatorId(Long id, String initiatorId);
@@ -26,10 +29,13 @@ public interface TransferRepository extends JpaRepository<Transfer, Long> {
     List<Long> findIdsPastFraudDeadline(@Param("now") Instant now, Pageable pageable);
 
     @Query("""
-            select t.id from Transfer t
-            where t.status in (com.gorkemuysal.minibank.transfer.TransferStatus.CAPTURING,
+            select new com.gorkemuysal.minibank.transfer.TransferRepository.StuckTransfer(t.id, t.status)
+            from Transfer t
+            where t.status in (com.gorkemuysal.minibank.transfer.TransferStatus.PENDING,
+                               com.gorkemuysal.minibank.transfer.TransferStatus.CAPTURING,
                                com.gorkemuysal.minibank.transfer.TransferStatus.RELEASING)
               and t.updatedAt < :before
+            order by t.updatedAt
             """)
-    List<Long> findIdsInFlightSince(@Param("before") Instant before, Pageable pageable);
+    List<StuckTransfer> findStuckSince(@Param("before") Instant before, Pageable pageable);
 }

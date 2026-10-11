@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
 /** Inbox + decision + outbox result, in one transaction. */
@@ -22,6 +23,7 @@ public class FraudRequestHandler {
     private final FraudCheckService fraudCheckService;
     private final OutboxWriter outboxWriter;
     private final JsonMapper jsonMapper;
+    private final MessageValidator messageValidator;
 
     @Transactional
     public void handle(MessageEnvelope message) {
@@ -33,7 +35,8 @@ public class FraudRequestHandler {
             throw new IllegalArgumentException("Unknown message type: " + message.type());
         }
 
-        FraudCheckRequestedPayload p = jsonMapper.treeToValue(message.payload(), FraudCheckRequestedPayload.class);
+        FraudCheckRequestedPayload p = messageValidator.requireValid(
+                payload(message, FraudCheckRequestedPayload.class), message.type());
         FraudCheck check = fraudCheckService.check(new FraudCheckContext(
                 message.transferId(), p.initiatorId(), p.sourceIban(), p.targetIban(),
                 p.amount(), p.currency(), p.requestedAt()));
@@ -45,5 +48,16 @@ public class FraudRequestHandler {
                 : MessageTypes.FRAUD_REJECTED;
         outboxWriter.write(FraudTopics.RESULTS, type, message.transferId(), message.requestId(),
                 new FraudResultPayload(check.reasonList()));
+    }
+
+    private <T> T payload(MessageEnvelope message, Class<T> type) {
+        if (message.payload() == null || message.payload().isNull()) {
+            throw new MalformedMessageException(message.type() + " has no payload");
+        }
+        try {
+            return jsonMapper.treeToValue(message.payload(), type);
+        } catch (JacksonException e) {
+            throw new MalformedMessageException("Invalid " + message.type() + " payload: " + e.getOriginalMessage(), e);
+        }
     }
 }

@@ -1,7 +1,16 @@
 server:
   port: 8000
+  shutdown: graceful
 
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  task:
+    scheduling:
+      shutdown:
+        # Let a running scheduled job (e.g. the outbox poller in the middle of a send) finish.
+        await-termination: true
+        await-termination-period: 10s
   application:
     name: api-gateway
   cloud:

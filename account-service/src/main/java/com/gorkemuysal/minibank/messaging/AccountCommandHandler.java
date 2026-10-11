@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Map;
@@ -28,6 +29,7 @@ public class AccountCommandHandler {
     private final HoldService holdService;
     private final OutboxWriter outboxWriter;
     private final JsonMapper jsonMapper;
+    private final MessageValidator messageValidator;
 
     @Transactional
     public void handle(MessageEnvelope message) {
@@ -41,14 +43,16 @@ public class AccountCommandHandler {
             case MessageTypes.HOLD_FUNDS -> handleHoldFunds(message);
             case MessageTypes.CAPTURE_FUNDS -> handleCaptureFunds(message);
             case MessageTypes.RELEASE_FUNDS -> handleReleaseFunds(message);
-            default -> throw new IllegalArgumentException("Unknown command type: " + message.type());
+            default -> throw new MalformedMessageException("Unknown message type: " + message.type());
         }
     }
 
     private void handleHoldFunds(MessageEnvelope message) {
-        HoldFundsPayload p = jsonMapper.treeToValue(message.payload(), HoldFundsPayload.class);
-        var request = new PlaceHoldRequest(message.transferId(), p.initiatorId(),
-                p.sourceIban(), p.targetIban(), p.amount(), p.currency());
+        HoldFundsPayload p = payload(message, HoldFundsPayload.class);
+        var request = messageValidator.requireValid(
+                new PlaceHoldRequest(message.transferId(), p.initiatorId(),
+                        p.sourceIban(), p.targetIban(), p.amount(), p.currency()),
+                message.type());
 
         switch (holdService.tryPlaceHold(request)) {
             case HoldResult.Held held -> outboxWriter.write(AccountTopics.REPLIES, MessageTypes.FUNDS_HELD,
@@ -74,5 +78,16 @@ public class AccountCommandHandler {
         holdService.releaseForCompensation(message.transferId());
         outboxWriter.write(AccountTopics.REPLIES, MessageTypes.FUNDS_RELEASED,
                 message.transferId(), message.requestId(), Map.of());
+    }
+
+    private <T> T payload(MessageEnvelope message, Class<T> type) {
+        if (message.payload() == null || message.payload().isNull()) {
+            throw new MalformedMessageException(message.type() + " has no payload");
+        }
+        try {
+            return jsonMapper.treeToValue(message.payload(), type);
+        } catch (JacksonException e) {
+            throw new MalformedMessageException("Invalid " + message.type() + " payload: " + e.getOriginalMessage(), e);
+        }
     }
 }

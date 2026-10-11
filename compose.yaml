@@ -55,6 +55,7 @@ services:
       - kafka
 
   account-service:
+    stop_grace_period: 30s
     build:
       context: .
       dockerfile: account-service/Dockerfile
@@ -75,6 +76,7 @@ services:
         condition: service_started
 
   transfer-service:
+    stop_grace_period: 30s
     build:
       context: .
       dockerfile: transfer-service/Dockerfile
@@ -99,6 +101,7 @@ services:
         condition: service_started
 
   fraud-service:
+    stop_grace_period: 30s
     build:
       context: .
       dockerfile: fraud-service/Dockerfile
@@ -115,6 +118,7 @@ services:
       kafka:
         condition: service_started
   api-gateway:
+    stop_grace_period: 30s
     build:
       context: .
       dockerfile: api-gateway/Dockerfile
