@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -23,7 +24,7 @@ public class AccountCommandListener {
 
     @KafkaListener(topics = AccountTopics.COMMANDS)
     public void onCommand(String raw) {
-        MessageEnvelope message = jsonMapper.readValue(raw, MessageEnvelope.class);
+        MessageEnvelope message = parse(raw);
 
         // Kafka is not authenticated yet: validate the ID like an HTTP header (4.3, log injection).
         boolean bound = RequestIdFilter.isValid(message.requestId());
@@ -38,4 +39,21 @@ public class AccountCommandListener {
             }
         }
     }
+
+    private MessageEnvelope parse(String raw) {
+        if (raw == null) {
+            throw new MalformedMessageException("Empty message value");
+        }
+        MessageEnvelope message;
+        try {
+            message = jsonMapper.readValue(raw, MessageEnvelope.class);
+        } catch (JacksonException e) {
+            throw new MalformedMessageException("Unreadable JSON: " + e.getOriginalMessage(), e);
+        }
+        if (message.messageId() == null || message.type() == null || message.transferId() == null) {
+            throw new MalformedMessageException("Envelope is missing messageId, type or transferId");
+        }
+        return message;
+    }
 }
+

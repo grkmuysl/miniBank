@@ -1,10 +1,7 @@
 package com.gorkemuysal.minibank.account;
 
 import com.gorkemuysal.minibank.common.BaseEntity;
-import com.gorkemuysal.minibank.exception.AccountNotActiveException;
-import com.gorkemuysal.minibank.exception.CurrencyMismatchException;
-import com.gorkemuysal.minibank.exception.InsufficientBalanceException;
-import com.gorkemuysal.minibank.exception.InvalidAmountException;
+import com.gorkemuysal.minibank.exception.*;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -198,6 +195,7 @@ public class Account extends BaseEntity {
                     "Cannot release/capture " + amount + ": only " + heldAmount + " is held on account " + getId());
         }
     }
+
 
     /**
      * Checks is valid amount.

@@ -2,6 +2,7 @@ package com.gorkemuysal.minibank.transfer;
 
 import com.gorkemuysal.minibank.transfer.common.BaseEntity;
 import com.gorkemuysal.minibank.transfer.dto.CreateTransferRequest;
+import com.gorkemuysal.minibank.transfer.exception.SagaInvariantViolationException;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -146,7 +147,7 @@ public class Transfer extends BaseEntity {
     /** Enforces the transition table; a refused transition is a bug, not a business outcome. */
     private void transitionTo(TransferStatus next) {
         if (!status.canTransitionTo(next)) {
-            throw new IllegalStateException(
+            throw new SagaInvariantViolationException(
                     "Transfer " + getId() + ": transition " + status + " -> " + next + " is not allowed");
         }
         this.status = next;
@@ -155,7 +156,7 @@ public class Transfer extends BaseEntity {
     /** Each saga step may only start from the state that expects it. */
     private void requireStatus(TransferStatus expected) {
         if (status != expected) {
-            throw new IllegalStateException(
+            throw new SagaInvariantViolationException(
                     "Transfer " + getId() + " must be " + expected + " but is " + status);
         }
     }
