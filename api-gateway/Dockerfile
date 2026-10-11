@@ -7,6 +7,7 @@ COPY .mvn .mvn
 COPY account-service/pom.xml account-service/
 COPY transfer-service/pom.xml transfer-service/
 COPY api-gateway/pom.xml api-gateway/
+COPY fraud-service/pom.xml fraud-service/
 RUN chmod +x mvnw && ./mvnw -pl api-gateway -am dependency:go-offline -B
 
 COPY api-gateway/src api-gateway/src

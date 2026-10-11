@@ -19,6 +19,7 @@
 		<module>account-service</module>
 		<module>transfer-service</module>
 		<module>api-gateway</module>
+		<module>fraud-service</module>
 	</modules>
 
 	<properties>

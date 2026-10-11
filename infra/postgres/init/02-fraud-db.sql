@@ -1,0 +1,3 @@
+CREATE USER fraud_app WITH PASSWORD 'local_dev_only';
+CREATE DATABASE frauddb OWNER fraud_app;
+REVOKE CONNECT ON DATABASE frauddb FROM PUBLIC;
