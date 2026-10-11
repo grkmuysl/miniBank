@@ -123,8 +123,8 @@ services:
       - "8000:8000"            # the only entry point for API traffic
     environment:
       ACCOUNT_SERVICE_URL: http://account-service:8080
-      TRANSFER_SERVICE_URL: http://transfer-service:8081
-      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/minibank/protocol/openid-connect/certs
+      KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/minibank/protocol/openid-connect/token
+      ACCOUNT_CLIENT_SECRET: ${ACCOUNT_CLIENT_SECRET:?...}
     depends_on:
       - account-service
       - transfer-service

@@ -2,18 +2,21 @@ package com.gorkemuysal.minibank.transfer.messaging;
 
 import com.gorkemuysal.minibank.transfer.Transfer;
 import com.gorkemuysal.minibank.transfer.TransferRepository;
-import com.gorkemuysal.minibank.transfer.messaging.payload.FraudCheckRequestedPayload;
+import com.gorkemuysal.minibank.transfer.TransferStatus;
+import com.gorkemuysal.minibank.transfer.messaging.payload.CaptureFailedPayload;
+import com.gorkemuysal.minibank.transfer.saga.SagaCommands;
+import com.gorkemuysal.minibank.transfer.saga.SagaProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Instant;
+
 /**
- * Applies account-service's replies to the transfer, in one transaction with the inbox record.
- * <p>
- * A reply only moves a transfer forward from the state that expects it (PENDING).
- * Late or duplicated replies must never move a transfer backwards.
+ * Applies account-service's replies. Pattern, in one transaction:
+ * inbox check -> is this reply expected in the current state? -> state change -> next command (outbox).
  */
 @Slf4j
 @Component
@@ -22,9 +25,9 @@ public class AccountReplyHandler {
 
     private final Inbox inbox;
     private final TransferRepository transferRepository;
+    private final SagaCommands sagaCommands;
+    private final SagaProperties sagaProperties;
     private final JsonMapper jsonMapper;
-
-    private final OutboxWriter outboxWriter;
 
     @Transactional
     public void handle(MessageEnvelope message) {
@@ -33,35 +36,67 @@ public class AccountReplyHandler {
                     message.messageId(), message.type(), message.transferId());
             return;
         }
-
         Transfer transfer = transferRepository.findById(message.transferId()).orElse(null);
         if (transfer == null) {
-            // Not ours (e.g. a reply to a manually produced test command). Retrying won't help.
             log.warn("Reply {} for unknown transfer {} ignored", message.type(), message.transferId());
-            return;
-        }
-        if (!transfer.isPending()) {
-            log.info("Reply {} for transfer {} ignored: transfer is already {}",
-                    message.type(), transfer.getId(), transfer.getStatus());
             return;
         }
 
         switch (message.type()) {
-            case MessageTypes.FUNDS_HELD -> {
-                transfer.markFundsHeld();
-                // Next saga step, in the same transaction as the state change (outbox).
-                // Keyed by customer: all of one customer's checks are processed in order.
-                outboxWriter.writeWithKey(FraudTopics.CHECK_REQUESTS, transfer.getInitiatorId(),
-                        MessageTypes.FRAUD_CHECK_REQUESTED, transfer.getId(), transfer.getRequestId(),
-                        FraudCheckRequestedPayload.from(transfer));
-                log.info("Transfer {} funds held, fraud check requested", transfer.getId());
-            }
+            case MessageTypes.FUNDS_HELD -> onFundsHeld(transfer, message);
             case MessageTypes.HOLD_FAILED -> {
-                HoldFailedPayload p = jsonMapper.treeToValue(message.payload(), HoldFailedPayload.class);
-                transfer.markFailed(p.code());
-                log.info("Transfer {} failed: {}", transfer.getId(), p.code());
+                if (expects(transfer, TransferStatus.PENDING, message)) {
+                    String code = jsonMapper.treeToValue(message.payload(), HoldFailedPayload.class).code();
+                    transfer.onHoldFailed(code);
+                    log.info("Transfer {} failed: {}", transfer.getId(), code);
+                }
+            }
+            case MessageTypes.FUNDS_CAPTURED -> {
+                if (expects(transfer, TransferStatus.CAPTURING, message)) {
+                    transfer.onCaptured();
+                    log.info("Transfer {} completed", transfer.getId());
+                }
+            }
+            case MessageTypes.CAPTURE_FAILED -> {
+                if (expects(transfer, TransferStatus.CAPTURING, message)) {
+                    String code = jsonMapper.treeToValue(message.payload(), CaptureFailedPayload.class).code();
+                    transfer.onCaptureFailed(code);
+                    sagaCommands.releaseFunds(transfer);
+                    log.warn("Transfer {} capture failed ({}); releasing funds", transfer.getId(), code);
+                }
+            }
+            case MessageTypes.FUNDS_RELEASED -> {
+                if (expects(transfer, TransferStatus.RELEASING, message)) {
+                    transfer.onReleased();
+                    log.info("Transfer {} rejected ({}), funds released", transfer.getId(), transfer.getReleaseReason());
+                }
             }
             default -> throw new IllegalArgumentException("Unknown reply type: " + message.type());
         }
+    }
+
+    private void onFundsHeld(Transfer transfer, MessageEnvelope message) {
+        if (transfer.getStatus() == TransferStatus.FAILED) {
+            // A hold exists for a transfer we already gave up on (see 5.2). Nobody would ever
+            // release it, so release it now. Harmless if no hold actually exists.
+            log.warn("FUNDS_HELD for FAILED transfer {}: releasing the orphan hold", transfer.getId());
+            sagaCommands.releaseFunds(transfer);
+            return;
+        }
+        if (expects(transfer, TransferStatus.PENDING, message)) {
+            transfer.onFundsHeld(Instant.now().plus(sagaProperties.fraudTimeout()));
+            sagaCommands.requestFraudCheck(transfer);
+            log.info("Transfer {} funds held, fraud check requested", transfer.getId());
+        }
+    }
+
+    /** Late or duplicated messages must never move a transfer backwards or sideways. */
+    private boolean expects(Transfer transfer, TransferStatus expected, MessageEnvelope message) {
+        if (transfer.getStatus() == expected) {
+            return true;
+        }
+        log.info("{} for transfer {} ignored: expected {}, transfer is {}",
+                message.type(), transfer.getId(), expected, transfer.getStatus());
+        return false;
     }
 }

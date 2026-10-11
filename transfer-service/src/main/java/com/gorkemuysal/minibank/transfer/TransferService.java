@@ -8,6 +8,7 @@ import com.gorkemuysal.minibank.transfer.messaging.AccountTopics;
 import com.gorkemuysal.minibank.transfer.messaging.HoldFundsPayload;
 import com.gorkemuysal.minibank.transfer.messaging.MessageTypes;
 import com.gorkemuysal.minibank.transfer.messaging.OutboxWriter;
+import com.gorkemuysal.minibank.transfer.saga.SagaCommands;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -26,12 +27,10 @@ import java.util.Optional;
 public class TransferService {
 
     private final TransferRepository transferRepository;
-    private final TransferProcessor transferProcessor;
     private final OutboxWriter outboxWriter;
     private final TransactionTemplate transactionTemplate;
+    private final SagaCommands sagaCommands;
 
-    @Value("${transfer.flow}")
-    private TransferFlow flow;
 
     /**
      * Creates a PENDING transfer in an idempotent way.
@@ -66,16 +65,7 @@ public class TransferService {
 
         // 2) Insert a new transfer. Either flow: the UNIQUE constraint is the real guarantee.
         try {
-            Transfer result = switch (flow) {
-                case SAGA -> startSaga(initiatorId, idempotencyKey, request);
-                case SYNC -> {
-                    Transfer saved = transferRepository.saveAndFlush(
-                            Transfer.createPending(initiatorId, idempotencyKey, request,
-                                    MDC.get(RequestIdFilter.MDC_KEY)));
-                    yield transferProcessor.process(saved.getId());
-                }
-            };
-            return new CreateTransferResult(result, true);
+            return new CreateTransferResult(startSaga(initiatorId, idempotencyKey, request), true);
         } catch (DataIntegrityViolationException e) {
             // 3) We lost the race: a concurrent request with the same key inserted first.
             //    PostgreSQL blocks our INSERT until the other transaction commits, so by the time
@@ -127,11 +117,10 @@ public class TransferService {
     private Transfer startSaga(String initiatorId, String idempotencyKey, CreateTransferRequest request) {
         return transactionTemplate.execute(status -> {
             Transfer transfer = transferRepository.saveAndFlush(
-                    Transfer.createForSaga(initiatorId, idempotencyKey, request,
+                    Transfer.create(initiatorId, idempotencyKey, request,
                             MDC.get(RequestIdFilter.MDC_KEY)));
 
-            outboxWriter.write(AccountTopics.COMMANDS, MessageTypes.HOLD_FUNDS,
-                    transfer.getId(), transfer.getRequestId(), HoldFundsPayload.from(transfer));
+            sagaCommands.holdFunds(transfer);
 
             log.info("Transfer {} created, HOLD_FUNDS queued", transfer.getId());
             return transfer;
