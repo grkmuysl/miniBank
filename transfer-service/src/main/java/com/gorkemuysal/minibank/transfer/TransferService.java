@@ -8,6 +8,7 @@ import com.gorkemuysal.minibank.transfer.messaging.AccountTopics;
 import com.gorkemuysal.minibank.transfer.messaging.HoldFundsPayload;
 import com.gorkemuysal.minibank.transfer.messaging.MessageTypes;
 import com.gorkemuysal.minibank.transfer.messaging.OutboxWriter;
+import com.gorkemuysal.minibank.transfer.saga.SagaCommands;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -29,6 +30,7 @@ public class TransferService {
     private final TransferProcessor transferProcessor;
     private final OutboxWriter outboxWriter;
     private final TransactionTemplate transactionTemplate;
+    private final SagaCommands sagaCommands;
 
     @Value("${transfer.flow}")
     private TransferFlow flow;
@@ -130,8 +132,7 @@ public class TransferService {
                     Transfer.createForSaga(initiatorId, idempotencyKey, request,
                             MDC.get(RequestIdFilter.MDC_KEY)));
 
-            outboxWriter.write(AccountTopics.COMMANDS, MessageTypes.HOLD_FUNDS,
-                    transfer.getId(), transfer.getRequestId(), HoldFundsPayload.from(transfer));
+            sagaCommands.holdFunds(transfer);
 
             log.info("Transfer {} created, HOLD_FUNDS queued", transfer.getId());
             return transfer;

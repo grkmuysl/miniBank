@@ -62,6 +62,13 @@ public class Transfer extends BaseEntity {
     @Column(length = 64, updatable = false)
     private String requestId;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private ReleaseReason releaseReason;
+
+    /** Only set while FUNDS_HELD: when the fraud check times out. */
+    private Instant stateDeadlineAt;
+
     /** Synchronous flow (3.x): first attempt in the request, retries by the job. */
     public static Transfer createPending(String initiatorId, String idempotencyKey,
                                          CreateTransferRequest request, String requestId) {
@@ -119,22 +126,66 @@ public class Transfer extends BaseEntity {
         this.nextAttemptAt = null;
     }
 
-    /** Saga: account-service confirmed the hold. */
-    public void markFundsHeld() {
-        requirePending();
-        this.status = TransferStatus.FUNDS_HELD;
+    // ---- Saga events. Each one accepts exactly one current state. ----
+
+    public void onFundsHeld(Instant fraudDeadline) {
+        requireStatus(TransferStatus.PENDING);
+        transitionTo(TransferStatus.FUNDS_HELD);
+        this.stateDeadlineAt = fraudDeadline;
     }
 
-    /** reasons: all triggered rule codes, stored for support and audit (not shown to the customer). */
-    public void markFraudRejected(String reasons) {
-        requireStatus(TransferStatus.FUNDS_HELD);
-        this.status = TransferStatus.FRAUD_REJECTED;
-        this.failureReason = truncate(reasons, 100);
+    public void onHoldFailed(String code) {
+        requireStatus(TransferStatus.PENDING);
+        transitionTo(TransferStatus.FAILED);
+        this.failureReason = truncate(code, 100);
     }
 
-    public void markFraudApproved() {
+    public void onFraudApproved() {
         requireStatus(TransferStatus.FUNDS_HELD);
-        this.status = TransferStatus.FRAUD_APPROVED;
+        transitionTo(TransferStatus.CAPTURING);
+        this.stateDeadlineAt = null;
+    }
+
+    public void onFraudRejected(String reasons) {
+        requireStatus(TransferStatus.FUNDS_HELD);
+        startReleasing(ReleaseReason.FRAUD_REJECTED);
+        this.failureReason = truncate(reasons, 100);   // rule codes, internal only
+    }
+
+    public void onFraudTimeout() {
+        requireStatus(TransferStatus.FUNDS_HELD);
+        startReleasing(ReleaseReason.FRAUD_TIMEOUT);
+    }
+
+    public void onCaptured() {
+        requireStatus(TransferStatus.CAPTURING);
+        transitionTo(TransferStatus.COMPLETED);
+    }
+
+    public void onCaptureFailed(String code) {
+        requireStatus(TransferStatus.CAPTURING);
+        startReleasing(ReleaseReason.CAPTURE_FAILED);
+        this.failureReason = truncate(code, 100);
+    }
+
+    public void onReleased() {
+        requireStatus(TransferStatus.RELEASING);
+        transitionTo(TransferStatus.REJECTED);
+    }
+
+    private void startReleasing(ReleaseReason reason) {
+        transitionTo(TransferStatus.RELEASING);
+        this.releaseReason = reason;
+        this.stateDeadlineAt = null;
+    }
+
+    /** Enforces the transition table; a refused transition is a bug, not a business outcome. */
+    private void transitionTo(TransferStatus next) {
+        if (!status.canTransitionTo(next)) {
+            throw new IllegalStateException(
+                    "Transfer " + getId() + ": transition " + status + " -> " + next + " is not allowed");
+        }
+        this.status = next;
     }
 
     /** Outcome unknown; try again at the given time. */
