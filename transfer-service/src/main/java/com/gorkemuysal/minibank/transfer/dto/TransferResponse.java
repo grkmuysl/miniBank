@@ -19,10 +19,18 @@ public record TransferResponse(
         String requestId,     // reference number: ID of the request that created this transfer
         Instant createdAt
 ) {
+    /** Generic code shown to customers instead of the exact fraud rules (see 5.3). */
+    static final String RISK_DECLINED = "DECLINED_BY_RISK_CHECK";
+
     public static TransferResponse from(Transfer t) {
+        // Exact rule codes would teach an attacker how to evade them; keep them internal.
+        String failureReason = t.getStatus() == TransferStatus.FRAUD_REJECTED
+                ? RISK_DECLINED
+                : t.getFailureReason();
+
         return new TransferResponse(
                 t.getId(), t.getSourceIban(), t.getTargetIban(), t.getAmount(),
                 t.getCurrency(), t.getDescription(), t.getStatus(),
-                t.getFailureReason(), t.getRequestId(), t.getCreatedAt());
+                failureReason, t.getRequestId(), t.getCreatedAt());
     }
 }

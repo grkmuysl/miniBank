@@ -2,6 +2,7 @@ package com.gorkemuysal.minibank.transfer.messaging;
 
 import com.gorkemuysal.minibank.transfer.Transfer;
 import com.gorkemuysal.minibank.transfer.TransferRepository;
+import com.gorkemuysal.minibank.transfer.messaging.payload.FraudCheckRequestedPayload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,8 @@ public class AccountReplyHandler {
     private final Inbox inbox;
     private final TransferRepository transferRepository;
     private final JsonMapper jsonMapper;
+
+    private final OutboxWriter outboxWriter;
 
     @Transactional
     public void handle(MessageEnvelope message) {
@@ -46,7 +49,12 @@ public class AccountReplyHandler {
         switch (message.type()) {
             case MessageTypes.FUNDS_HELD -> {
                 transfer.markFundsHeld();
-                log.info("Transfer {} funds held", transfer.getId());
+                // Next saga step, in the same transaction as the state change (outbox).
+                // Keyed by customer: all of one customer's checks are processed in order.
+                outboxWriter.writeWithKey(FraudTopics.CHECK_REQUESTS, transfer.getInitiatorId(),
+                        MessageTypes.FRAUD_CHECK_REQUESTED, transfer.getId(), transfer.getRequestId(),
+                        FraudCheckRequestedPayload.from(transfer));
+                log.info("Transfer {} funds held, fraud check requested", transfer.getId());
             }
             case MessageTypes.HOLD_FAILED -> {
                 HoldFailedPayload p = jsonMapper.treeToValue(message.payload(), HoldFailedPayload.class);

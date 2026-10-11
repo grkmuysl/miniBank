@@ -125,6 +125,18 @@ public class Transfer extends BaseEntity {
         this.status = TransferStatus.FUNDS_HELD;
     }
 
+    /** reasons: all triggered rule codes, stored for support and audit (not shown to the customer). */
+    public void markFraudRejected(String reasons) {
+        requireStatus(TransferStatus.FUNDS_HELD);
+        this.status = TransferStatus.FRAUD_REJECTED;
+        this.failureReason = truncate(reasons, 100);
+    }
+
+    public void markFraudApproved() {
+        requireStatus(TransferStatus.FUNDS_HELD);
+        this.status = TransferStatus.FRAUD_APPROVED;
+    }
+
     /** Outcome unknown; try again at the given time. */
     public void scheduleRetry(String error, Instant nextAttemptAt) {
         requirePending();
@@ -144,8 +156,14 @@ public class Transfer extends BaseEntity {
 
     /** Final states never change: a COMPLETED transfer must not silently become FAILED. */
     private void requirePending() {
-        if (status != TransferStatus.PENDING) {
-            throw new IllegalStateException("Transfer " + getId() + " is not PENDING but " + status);
+        requireStatus(TransferStatus.PENDING);
+    }
+
+    /** Each saga step may only start from the state that expects it. */
+    private void requireStatus(TransferStatus expected) {
+        if (status != expected) {
+            throw new IllegalStateException(
+                    "Transfer " + getId() + " must be " + expected + " but is " + status);
         }
     }
 

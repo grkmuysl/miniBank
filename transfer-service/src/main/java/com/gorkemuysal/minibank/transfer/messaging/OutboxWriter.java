@@ -16,17 +16,24 @@ public class OutboxWriter {
     private final OutboxRepository outboxRepository;
     private final JsonMapper jsonMapper;
 
-    /**
-     * Stores a message to be published later. MANDATORY: the message must be saved in the same
-     * transaction as the business change it describes; that is the whole point of the outbox.
-     */
+    /** Message keyed by transferId: all messages about one transfer stay in order. */
     @Transactional(propagation = Propagation.MANDATORY)
     public void write(String topic, String type, Long transferId, String requestId, Object payload) {
+        writeWithKey(topic, String.valueOf(transferId), type, transferId, requestId, payload);
+    }
+
+    /**
+     * Message with an explicit partition key, for topics that need a different ordering,
+     * e.g. fraud.check-requests is keyed by customer so the velocity rule counts correctly.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void writeWithKey(String topic, String key, String type, Long transferId,
+                             String requestId, Object payload) {
         UUID messageId = UUID.randomUUID();
         MessageEnvelope envelope = new MessageEnvelope(
                 messageId, type, transferId, requestId, Instant.now(), jsonMapper.valueToTree(payload));
 
         outboxRepository.save(OutboxEvent.pending(
-                messageId, topic, String.valueOf(transferId), jsonMapper.writeValueAsString(envelope)));
+                messageId, topic, key, jsonMapper.writeValueAsString(envelope)));
     }
 }
